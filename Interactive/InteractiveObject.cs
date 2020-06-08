@@ -38,7 +38,7 @@ public class InteractiveObject : MonoBehaviour
         }
     }
 
-    public virtual void Interact(Transform interactor) {
+    public virtual bool Interact(Transform interactor) {
 
         // If this is the first time we interact with the object, we trigger its events
         if (!_didInteract)
@@ -46,5 +46,7 @@ public class InteractiveObject : MonoBehaviour
             _didInteract = true;
             _interactEvents.Invoke();
         }
+
+        return true;
     }
 }

@@ -6,7 +6,7 @@ using UnityEngine.AI;
 public abstract class AIState : MonoBehaviour
 {
     [SerializeField] protected bool _useRootPosition = true;
-    [SerializeField] private bool _useRootRotation = true;
+    [SerializeField] protected bool _useRootRotation = true;
     [SerializeField] protected List<AudioClip> _sounds = new List<AudioClip>();
     [SerializeField] protected List<AudioClip> _metamorphosisSounds = new List<AudioClip>();
     [SerializeField] bool _loopSound = true;
@@ -14,13 +14,22 @@ public abstract class AIState : MonoBehaviour
     [SerializeField] private float _soundDelay = 5f;
     [SerializeField] private List<string> _stateAnimationNames = new List<string>();
 
-
     protected AIStateMachine _stateMachine = null;
     private int _soundIndex = -1;
     private float _currentAudioCounter = 0f;
+    private AITalk _talk = null;
 
     public int soundIndex { set { _soundIndex = value; } }
     public bool useRootPosition { get { return _useRootPosition; } }
+
+    #region Monobehavior callbacks
+
+    private void Start()
+    {
+        _talk = GetComponent<AITalk>();
+    }
+
+    #endregion
 
     public virtual void OnStateEnter()
     {
@@ -52,9 +61,12 @@ public abstract class AIState : MonoBehaviour
                 canPlaySound = false;
             }
 
-            if (_soundIndex == -1)
-            {
+            // If we re playing pain sound, then we don't play any other sound
+            if (_stateMachine.playingPainSound)
+                canPlaySound = false;
 
+            if (_soundIndex == -1 && _stateMachine.mouthAudioSource != null)
+            {
                 if (canPlaySound)
                 {
                     List<AudioClip> sounds = _sounds;
@@ -65,23 +77,41 @@ public abstract class AIState : MonoBehaviour
                     _stateMachine.mouthAudioSource.Play();
 
                     _currentAudioCounter = 0f;
+
+                    if (_talk != null)
+                        _talk.talking = true;
                 } else
                 {
-                    _stateMachine.mouthAudioSource.clip = null;
-                    _stateMachine.mouthAudioSource.Stop();
+                    if (!_stateMachine.playingPainSound)
+                    {
+                        // Only reset the playing audio when we aren't playing a pain sound
+                        _stateMachine.mouthAudioSource.clip = null;
+                        _stateMachine.mouthAudioSource.Stop();
+                    }
                 }
             } else
             {
                 _currentAudioCounter += Time.deltaTime;
-                if (_currentAudioCounter >= _stateMachine.mouthAudioSource.clip.length && !_controlledSoundTime
+                if (_stateMachine.mouthAudioSource.clip == null
+                    || _currentAudioCounter >= _stateMachine.mouthAudioSource.clip.length && !_controlledSoundTime
                     || _currentAudioCounter >= _soundDelay && _controlledSoundTime
                     // If we are metamorphosed, we don't wait till the previous sound ends, we change rapidly between the sounds
                     || _currentAudioCounter >= _stateMachine.mouthAudioSource.clip.length - 1f && _stateMachine.isTransformed)
                 {
+
                     _currentAudioCounter = 0f;
                     _stateMachine.mouthAudioSource.Stop();
                     _stateMachine.mouthAudioSource.clip = null;
                     _soundIndex = -1;
+                }
+
+                // Stop talking when we finished the audio source or when it is set to null
+                if (_stateMachine.mouthAudioSource == null || (_stateMachine.mouthAudioSource.clip != null && _currentAudioCounter >= _stateMachine.mouthAudioSource.clip.length))
+                {
+                    if (_talk != null)
+                    {
+                        _talk.talking = false;
+                    }
                 }
             }
         }
@@ -89,7 +119,8 @@ public abstract class AIState : MonoBehaviour
         // Check if we saw a target
         if(_stateMachine.currentTarget != null
             && _stateMachine.currentStateType != AIStateType.Attacking
-            && _stateMachine.currentStateType != AIStateType.Pursuit)
+            && _stateMachine.currentStateType != AIStateType.Pursuit
+            && !_stateMachine.standStill)
         {
             return AIStateType.Pursuit;
         }

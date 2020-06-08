@@ -7,6 +7,7 @@ public class PlayerHUD : MonoBehaviour
 {
     [SerializeField] Inventory _playerInventory = null;
     [SerializeField] SharedInt _equippedWeapon = null;
+    [SerializeField] GameObject _ammoPanel = null;
     [SerializeField] Text _equippedRoundsText = null;
     [SerializeField] Text _remainingRoundsText = null;
     [SerializeField] Text _interactiveText = null;
@@ -48,8 +49,7 @@ public class PlayerHUD : MonoBehaviour
         {
             if (weaponMount.item != null) {
                 // Activating ammo text
-                _remainingRoundsText.gameObject.SetActive(true);
-                _equippedRoundsText.gameObject.SetActive(true);
+                _ammoPanel.gameObject.SetActive(true);
 
                 _equippedRoundsText.text = weaponMount.rounds + "";
 
@@ -70,8 +70,7 @@ public class PlayerHUD : MonoBehaviour
         } else
         {
             // Deactivating ammo text
-            _remainingRoundsText.gameObject.SetActive(false);
-            _equippedRoundsText.gameObject.SetActive(false);
+            _ammoPanel.gameObject.SetActive(false);
         }
 
         // For screan health

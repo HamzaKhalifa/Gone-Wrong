@@ -13,7 +13,6 @@ public class AudioThreat
     public bool active = false;
 }
 
-[RequireComponent(typeof(SphereCollider))]
 public class AudioThreatManager : MonoBehaviour
 {
     public static AudioThreatManager instance = null;

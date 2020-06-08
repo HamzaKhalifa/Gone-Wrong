@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
+/*
 namespace MGS.MeshCombiner
 {
     public class MeshCombiner : ScriptableWizard
@@ -108,3 +109,4 @@ namespace MGS.MeshCombiner
         #endregion
     }
 }
+*/

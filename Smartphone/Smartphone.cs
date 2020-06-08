@@ -27,10 +27,19 @@ public class Smartphone : MonoBehaviour
         {
             _animator.SetBool(_lookingHash, _looking);
         }
+
+        //gameObject.SetActive(false);
     }
 
     public void Look(bool look)
     {
+        // Commented code because the checkpoint messages no longer play when the smartphone is deactivated
+        /*if (look)
+        {
+            gameObject.SetActive(true);
+        } else
+        {*/
+
         _looking = look;
 
         // We play the look or stop looking sound
@@ -48,5 +57,10 @@ public class Smartphone : MonoBehaviour
 
         // We play the look animation (or stop looking animation)
         _animator.SetBool(_lookingHash, _looking);
+    }
+
+    public void Deactivate()
+    {
+        gameObject.SetActive(false);
     }
 }

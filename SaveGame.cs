@@ -7,7 +7,7 @@ public enum DataType { None, Weapon, Ammo, Consumable, Message }
 public enum DayTime { Night, Mist }
 
 [System.Serializable]
-public class SavedSingleData 
+public class SavedSingleData
 {
     public DataType type = DataType.None;
     public int index = -1;
@@ -30,6 +30,7 @@ public class ProgressObject
     public int index = -1;
     public bool active = true;
     public Vector3 position = Vector3.zero;
+    public Quaternion rotation = Quaternion.identity;
 }
 
 [System.Serializable]
@@ -42,7 +43,6 @@ public class SceneData
     public string nextObjective = "";
     public DayTime dayTime = DayTime.Night;
 }
-
 
 [System.Serializable]
 public class SavedData
@@ -64,8 +64,9 @@ public class SavedData
     public Quaternion playerRotation = new Quaternion();
 
     public SceneData hospitalSceneData = new SceneData();
-    public SceneData citySceneData = new SceneData();
     public SceneData wasteLandData = new SceneData();
+    public SceneData tunnelsSceneData = new SceneData();
+    public SceneData undergroundSceneData = new SceneData();
 
     public List<SceneCollectableItem> hospitalCollectableItems = new List<SceneCollectableItem>();
 }
@@ -148,18 +149,18 @@ public class SaveGame : InteractiveObject
                 _playerInventory.rifle1.rounds = savedData.rifle1.rounds;
             }
 
-            if (savedData.rifle2.index != -1) {
+            if (savedData.rifle2.index != -1 && _inventoryWeapons.Count > savedData.rifle2.index) {
                 _playerInventory.rifle2.item = _inventoryWeapons[savedData.rifle2.index];
                 _playerInventory.rifle2.rounds = savedData.rifle2.rounds;
             }
 
-            if (savedData.handgun.index != -1)
+            if (savedData.handgun.index != -1 && _inventoryWeapons.Count > savedData.handgun.index)
             {
                 _playerInventory.handgun.item = _inventoryWeapons[savedData.handgun.index];
                 _playerInventory.handgun.rounds = savedData.handgun.rounds;
             }
 
-            if (savedData.melee.index != -1)
+            if (savedData.melee.index != -1 && _inventoryWeapons.Count > savedData.melee.index)
             {
                 _playerInventory.melee.item = _inventoryWeapons[savedData.melee.index];
             }
@@ -178,7 +179,9 @@ public class SaveGame : InteractiveObject
                         }
                         break;
                     case DataType.Consumable:
-                        if (_inventoryConsumables.Count > savedSingleData.index)
+                        if (_inventoryConsumables.Count > savedSingleData.index
+                            && _inventoryConsumables[savedSingleData.index] != null
+                            && _inventoryConsumables[savedSingleData.index].collectableConsumable.canSave)
                         {
                             InventoryConsumableMount consumableMount = new InventoryConsumableMount();
                             consumableMount.item = _inventoryConsumables[savedSingleData.index];
@@ -223,15 +226,21 @@ public class SaveGame : InteractiveObject
 
             // We only load the player position if the last saved scene is the same as the current scene
             // So that we dont load the player in a random position when he just entered the map from another map
+            // We can also load the player's positon when we are in wasteland
             GoneWrong.Player player = FindObjectOfType<GoneWrong.Player>();
-            if (player != null && _savedData.currentScene == SceneManager.GetActiveScene().buildIndex)
+            if (player != null && _savedData.currentScene == SceneManager.GetActiveScene().buildIndex
+                && SceneManager.GetActiveScene().buildIndex == 2)
             {
                 CharacterController playerCharacterController = player.GetComponent<CharacterController>();
                 playerCharacterController.enabled = false;
 
                 if (savedData.playerPosition != Vector3.zero)
                 {
+                    FlashlightLight flashLight = FindObjectOfType<FlashlightLight>();
+                    // We should also put the flash light in place
+                    Vector3 differenceWithFlashLight = player.transform.position - flashLight.transform.position;
                     player.transform.position = savedData.playerPosition;
+                    flashLight.transform.position = player.transform.position - differenceWithFlashLight;
                 }
 
                 if (savedData.playerRotation != Quaternion.identity)
@@ -250,11 +259,14 @@ public class SaveGame : InteractiveObject
                 case "Hospital":
                     sceneData = savedData.hospitalSceneData;
                     break;
-                case "City":
-                    sceneData = savedData.citySceneData;
-                    break;
                 case "Wasteland":
                     sceneData = savedData.wasteLandData;
+                    break;
+                case "Tunnels":
+                    sceneData = savedData.tunnelsSceneData;
+                    break;
+                case "Underground":
+                    sceneData = savedData.undergroundSceneData;
                     break;
             }
 
@@ -287,7 +299,8 @@ public class SaveGame : InteractiveObject
                 CollectableAmmo[] colectableAmmos = FindObjectsOfType<CollectableAmmo>();
                 foreach (CollectableAmmo collectableAmmo in colectableAmmos)
                 {
-                    Destroy(collectableAmmo.gameObject);
+                    if (collectableAmmo.canSave)
+                        Destroy(collectableAmmo.gameObject);
                 }
 
                 // Then we instantiate all the remaining collectable Items that were present when saving the data
@@ -299,7 +312,9 @@ public class SaveGame : InteractiveObject
                         // Then we instantiate the collectable item from the inventory scriptable object in our list
                         if (sceneCollectableItem.type == DataType.Consumable)
                         {
-                            if (_inventoryConsumables[sceneCollectableItem.index].collectableConsumable != null)
+                            if (_inventoryConsumables[sceneCollectableItem.index].collectableConsumable != null
+                                // check if we can instantiate it in the first place
+                                && _inventoryConsumables[sceneCollectableItem.index].collectableConsumable.canSave)
                             {
                                 CollectableConsumable tmp = Instantiate(_inventoryConsumables[sceneCollectableItem.index].collectableConsumable);
                                 if (sceneCollectableItem.parentName != "")
@@ -368,6 +383,7 @@ public class SaveGame : InteractiveObject
                         {
                             sceneProgressObject.gameObject.SetActive(progressObject.active);
                             sceneProgressObject.transform.position = progressObject.position;
+                            sceneProgressObject.transform.rotation = progressObject.rotation;
                         }
                     }
                 }
@@ -378,6 +394,14 @@ public class SaveGame : InteractiveObject
                 if (playerHud != null)
                 {
                     playerHud.ChangeLevelObjectiveText(sceneData.nextObjective);
+                }
+
+                CarHUD carHUD = CarHUD.instance;
+                if (carHUD == null) carHUD = FindObjectOfType<CarHUD>();
+
+                if (carHUD != null)
+                {
+                    carHUD.ChangeLevelObjectiveText(sceneData.nextObjective);
                 }
             }
         }
@@ -395,11 +419,17 @@ public class SaveGame : InteractiveObject
         }
     }
 
-    public void Save()
+    public void Save(int sceneIndex = -1)
     {
         SavedData savedData = new SavedData();
 
-        savedData.currentScene = SceneManager.GetActiveScene().buildIndex;
+        // We save the current scene if scene index is either not set or when we are going back to main menu
+        // Or when the next scene is nightmare
+        // Or when it's the end chapter or the final suicide scene
+        if (sceneIndex == -1 || sceneIndex == 0 || sceneIndex == 3 || sceneIndex == 6 || sceneIndex == 7)
+            savedData.currentScene = SceneManager.GetActiveScene().buildIndex;
+        else
+            savedData.currentScene = sceneIndex;
 
         // We get the corresponding scene items first
         SceneData sceneData = null;
@@ -411,6 +441,12 @@ public class SaveGame : InteractiveObject
             case "Wasteland":
                 sceneData = savedData.wasteLandData;
                 break;
+            case "Tunnels":
+                sceneData = savedData.tunnelsSceneData;
+                break;
+            case "Underground":
+                sceneData = savedData.undergroundSceneData;
+                break;
         }
 
         if (_playerInventory != null)
@@ -420,9 +456,11 @@ public class SaveGame : InteractiveObject
             weaponMounts.Add(_playerInventory.rifle2);
             weaponMounts.Add(_playerInventory.handgun);
             weaponMounts.Add(_playerInventory.melee);
+
             for (int i = 0; i < weaponMounts.Count; i++)
             {
-                if (weaponMounts[i].item == null) continue;
+                if (weaponMounts[i].item == null)
+                    continue;
 
                 bool foundWeapon = false;
                 int index = 0;
@@ -459,11 +497,14 @@ public class SaveGame : InteractiveObject
                     if (ammoMount.item == _inventoryAmmos[index])
                     {
                         foundAmmo = true;
-                        SavedSingleData savedSingleData = new SavedSingleData();
-                        savedSingleData.type = DataType.Ammo;
-                        savedSingleData.index = index;
-                        savedSingleData.rounds = ammoMount.rounds;
-                        savedData.inventoryList.Add(savedSingleData);
+                        if (ammoMount.item.collectableAmmo.canSave)
+                        {
+                            SavedSingleData savedSingleData = new SavedSingleData();
+                            savedSingleData.type = DataType.Ammo;
+                            savedSingleData.index = index;
+                            savedSingleData.rounds = ammoMount.rounds;
+                            savedData.inventoryList.Add(savedSingleData);
+                        }
                     }
 
                     index++;
@@ -480,10 +521,13 @@ public class SaveGame : InteractiveObject
                     if (consumableMount.item == _inventoryConsumables[index])
                     {
                         foundConsumable = true;
-                        SavedSingleData savedSingleData = new SavedSingleData();
-                        savedSingleData.type = DataType.Consumable;
-                        savedSingleData.index = index;
-                        savedData.inventoryList.Add(savedSingleData);
+                        if (consumableMount.item.collectableConsumable.canSave)
+                        {
+                            SavedSingleData savedSingleData = new SavedSingleData();
+                            savedSingleData.type = DataType.Consumable;
+                            savedSingleData.index = index;
+                            savedData.inventoryList.Add(savedSingleData);
+                        }
                     }
 
                     index++;
@@ -611,6 +655,7 @@ public class SaveGame : InteractiveObject
                 {
                     progressObject.active = _progressObjects[i].gameObject.activeSelf;
                     progressObject.position = _progressObjects[i].transform.position;
+                    progressObject.rotation = _progressObjects[i].transform.rotation;
                 }
                 else
                 {
@@ -628,12 +673,19 @@ public class SaveGame : InteractiveObject
 
             // Then we set the scene saved state to true
             sceneData.savedBefore = true;
+
+            Notifications.instance.EnqueNotification("Progress Saved!");
+            if(ProgressSavedUI.instance != null)
+            {
+                ProgressSavedUI.instance.Show();
+            }
         }
 
 
         // Now we save the player position
+        // We only save the player's position when we are in wasteland
         GoneWrong.Player player = GoneWrong.Player.instance;
-        if (player != null)
+        if (player != null && SceneManager.GetActiveScene().buildIndex == 2)
         {
             savedData.playerPosition = player.transform.position;
             savedData.playerRotation = player.transform.rotation;
@@ -645,7 +697,7 @@ public class SaveGame : InteractiveObject
         PlayerPrefs.SetString("data", data);
     }
 
-    public override void Interact(Transform interactor)
+    public override bool Interact(Transform interactor)
     {
         base.Interact(interactor);
 
@@ -671,13 +723,14 @@ public class SaveGame : InteractiveObject
             if (Notifications.instance != null)
             {
                 Save();
-                Notifications.instance.EnqueNotification("Progress Saved!");
             }
         } else
         {
             _automaticShutDownCoroutine = AutomaticShutdown();
             StartCoroutine(_automaticShutDownCoroutine);
         }
+
+        return true;
     }
 
     public IEnumerator AutomaticShutdown()

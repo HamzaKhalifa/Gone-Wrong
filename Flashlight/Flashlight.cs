@@ -32,6 +32,19 @@ public class Flashlight : MonoBehaviour
 
     public void Look(bool look)
     {
+        if (look)
+        {
+            // Instead of activating the flashlight, we deactivate its children (we need this to still let the coroutine of this object to play)
+            for (int i = 0; i < transform.childCount; i++)
+            {
+                transform.GetChild(i).gameObject.SetActive(true);
+            }
+        }
+        else
+        {
+            Invoke("Deactivate", .3f);
+        }
+
         if (_animator != null)
         {
             _looking = look;
@@ -49,11 +62,21 @@ public class Flashlight : MonoBehaviour
         }
     }
 
+    public void Deactivate()
+    {
+        // Instead of activating the flashlight, we dedeactivate its children (we need this to still let the coroutine of this object to play)
+        for (int i = 0; i < transform.childCount; i++)
+        {
+            transform.GetChild(i).gameObject.SetActive(false);
+        }
+    }
+
     public void ActivateDeactivateLight(bool activate, float time)
     {
         // We don't deactivet the light when the flash light is looking
         if (!activate && _looking) return;
 
+        if (_activateLightCoroutine != null) StopCoroutine(_activateLightCoroutine);
         _activateLightCoroutine = ActivateLightCouroutine(activate, time);
         StartCoroutine(_activateLightCoroutine);
     }
@@ -61,6 +84,7 @@ public class Flashlight : MonoBehaviour
     public IEnumerator ActivateLightCouroutine(bool activate, float time)
     {   
         yield return new WaitForSeconds(time);
+
         if (_lightTransform != null)
         {
             _lightTransform.gameObject.SetActive(activate);

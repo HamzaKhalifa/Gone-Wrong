@@ -49,13 +49,16 @@ public class Notifications : MonoBehaviour
             GoneWrong.AudioManager.instance.PlayOneShotSound(_notificationSound, 1, 0, 0);
         }
 
+        string theNotification = "";
+        if (_queue.Count > 0)
+            theNotification = _queue.Dequeue();
+
         foreach (Text notificationText in _notificationTexts)
         {
             if (notificationText != null)
             {
                 notificationText.gameObject.SetActive(true);
-                if (_queue.Count > 0)
-                    notificationText.text = _queue.Dequeue();
+                notificationText.text = theNotification;
             }
         }
 

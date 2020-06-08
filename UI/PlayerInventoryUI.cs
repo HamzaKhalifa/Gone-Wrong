@@ -73,6 +73,10 @@ public class PlayerInventoryUI : MonoBehaviour
     [SerializeField] Slider _staminaSlider = null;
     [SerializeField] Slider _infectionSlider = null;
 
+    [Header("For Audio")]
+    [SerializeField] private AudioClip _onPointerEnterClip = null;
+    [SerializeField] private AudioClip _onPointerClickClip = null;
+
     private List<WeaponInfo> _weaponInfos = new List<WeaponInfo>();
     private List<ItemInfo> _itemInfos = new List<ItemInfo>();
     private Color _weaponContainerDefaultColor = Color.white;
@@ -99,11 +103,6 @@ public class PlayerInventoryUI : MonoBehaviour
         {
             _itemContainerDefaulColor = _itemSlots[0].GetComponent<Image>().color;
         }
-    }
-
-    private void OnEnable()
-    {
-        Repaint(false);
     }
 
     private void Update()
@@ -149,7 +148,7 @@ public class PlayerInventoryUI : MonoBehaviour
             weaponInfo.isEmpty = true;
             weaponInfo.nameText = weaponInfoContainer.Find("Weapon Name").GetComponent<Text>();
             weaponInfo.roundsText = weaponInfoContainer.Find("Weapon Rounds").GetComponent<Text>();
-            weaponInfo.image = weaponInfoContainer.Find("Weapon Image").Find("Frame").Find("Slot Image").GetComponent<Image>();
+            weaponInfo.image = weaponInfoContainer.Find("Weapon Image").Find("Frame").Find("Weapon Slot Image").GetComponent<Image>();
 
             _weaponInfos.Add(weaponInfo);
 
@@ -181,7 +180,11 @@ public class PlayerInventoryUI : MonoBehaviour
                     // After adding the weapon to the inventory, we are gonna add the weaponControl
                     // We only do this at the beginning
                     if (firstPaint)
-                        _weaponInfos[i].weaponMount.item.collectableWeapon.ReplaceWeapon(true, _weaponInfos[i].weaponMount);
+                    {
+                        // This shouldn't be called more than once because replace weapon looks for an empty space in backpack
+                        // And adds another assault rifle even though we may have one in our inventory.
+                        _weaponInfos[i].weaponMount.item.collectableWeapon.ReplaceWeapon(true, _weaponInfos[i].weaponMount, /* which rifle is either 1 or 2 */ i + 1);
+                    }
                 } else
                 {
                     _weaponInfos[i].image.sprite = null;
@@ -241,6 +244,11 @@ public class PlayerInventoryUI : MonoBehaviour
                 _hoverdItemType = ItemType.Weapon;
 
                 ChangeGeneralDescription(index);
+
+                if (GoneWrong.AudioManager.instance != null)
+                {
+                    GoneWrong.AudioManager.instance.PlayOneShotSound(_onPointerEnterClip, 1, 0, 0);
+                }
             }
         }
     }
@@ -270,6 +278,11 @@ public class PlayerInventoryUI : MonoBehaviour
         {
             if (_weaponSlots[index] != null)
             {
+                if (GoneWrong.AudioManager.instance != null)
+                {
+                    GoneWrong.AudioManager.instance.PlayOneShotSound(_onPointerClickClip, 1, 0, 0);
+                }
+
                 Image image = _weaponSlots[index].GetComponent<Image>();
                 // If we already got the weapon selected, we unselect it
                 if (_clickedItemIndex == index && _hoverdItemType == ItemType.Weapon)
@@ -316,6 +329,19 @@ public class PlayerInventoryUI : MonoBehaviour
             _hoverdItemType = _itemInfos[index].itemType;
 
             ChangeGeneralDescription(index);
+
+            if (GoneWrong.AudioManager.instance != null)
+            {
+                GoneWrong.AudioManager.instance.PlayOneShotSound(_onPointerEnterClip, 1, 0, 0);
+            }
+        }
+    }
+
+    public void PlayUIHoverClip()
+    {
+        if (GoneWrong.AudioManager.instance != null)
+        {
+            GoneWrong.AudioManager.instance.PlayOneShotSound(_onPointerEnterClip, 1, 0, 0);
         }
     }
 
@@ -342,6 +368,11 @@ public class PlayerInventoryUI : MonoBehaviour
         {
             if (_itemInfos[index] != null)
             {
+                if (GoneWrong.AudioManager.instance != null)
+                {
+                    GoneWrong.AudioManager.instance.PlayOneShotSound(_onPointerClickClip, 1, 0, 0);
+                }
+
                 // If we already got the weapon selected, we unselect it
                 if (_clickedItemIndex == index && _hoverdItemType != ItemType.Weapon)
                 {
@@ -406,6 +437,7 @@ public class PlayerInventoryUI : MonoBehaviour
                 {
                     _generalDescriptionPanel.actionButton1.gameObject.SetActive(true);
                     _generalDescriptionPanel.actionButton1.GetComponentInChildren<Text>().text = weapon.actionButton1Text;
+                    _generalDescriptionPanel.actionButton1.gameObject.SetActive(true);
                 }
 
                 if (_generalDescriptionPanel.actionButton2 != null)
@@ -449,6 +481,7 @@ public class PlayerInventoryUI : MonoBehaviour
                 {
                     _generalDescriptionPanel.actionButton1.gameObject.SetActive(true);
                     _generalDescriptionPanel.actionButton1.GetComponentInChildren<Text>().text = ammo.actionButton1Text;
+                    _generalDescriptionPanel.actionButton1.gameObject.SetActive(true);
                 }
 
                 if (_generalDescriptionPanel.actionButton2 != null)
@@ -491,6 +524,8 @@ public class PlayerInventoryUI : MonoBehaviour
                 {
                     _generalDescriptionPanel.actionButton1.gameObject.SetActive(true);
                     _generalDescriptionPanel.actionButton1.GetComponentInChildren<Text>().text = consumable.actionButton1Text;
+
+                    _generalDescriptionPanel.actionButton1.gameObject.SetActive(consumable.canBeDropped);
                 }
 
                 if (_generalDescriptionPanel.actionButton2 != null)
@@ -535,6 +570,46 @@ public class PlayerInventoryUI : MonoBehaviour
         }
 
         _clickedItemType = ItemType.None;
+    }
+
+    public void DropConsumableByIndex(int index)
+    {
+        if (_inventory.consumables[index].item.collectableConsumable != null)
+        {
+            CollectableConsumable consumable = _inventory.consumables[index].item.collectableConsumable;
+
+            if (!consumable.consumableMount.item.canBeDropped)
+            {
+                // If the item can't be dropped (because it's a key item), we get out after notifyng the player
+                if (Notifications.instance != null)
+                {
+                    Notifications.instance.EnqueNotification("This item can't be dropped");
+                }
+                return;
+            }
+
+            Instantiate(_inventory.consumables[index].item.collectableConsumable,
+                GoneWrong.Player.instance.transform.position + GoneWrong.Player.instance.transform.forward,
+                Quaternion.Euler(_inventory.consumables[index].item.collectableConsumable.instantiateRotation));
+
+            // We play the drop consumable sound
+            _inventory.consumables[index].item.collectableConsumable.PlayDropSound();
+
+            _inventory.consumables[index].item = null;
+            _inventory.consumables.RemoveAt(index);
+        }
+    }
+
+    public void DropConsumableByName(string itemName)
+    {
+        for (int i = 0; i < _inventory.consumables.Count; i++)
+        {
+            if (_inventory.consumables[i].item.name == itemName)
+            {
+                DropConsumableByIndex(i);
+                break;
+            }
+        }
     }
 
     public void Drop()
@@ -597,29 +672,8 @@ public class PlayerInventoryUI : MonoBehaviour
 
                 // We instantiate the consumable in front of us
 
-                if (_inventory.consumables[indexAtConsumableList].item.collectableConsumable != null)
-                {
-                    CollectableConsumable consumable = _inventory.consumables[indexAtConsumableList].item.collectableConsumable;
+                DropConsumableByIndex(indexAtConsumableList);
 
-                    if (!consumable.consumableMount.item.canBeDropped) {
-                        // If the item can't be dropped (because it's a key item), we get out after notifyng the player
-                        if (Notifications.instance != null)
-                        {
-                            Notifications.instance.EnqueNotification("This item can't be dropped");
-                        }
-                        return;
-                    }
-
-                    Instantiate(_inventory.consumables[indexAtConsumableList].item.collectableConsumable,
-                        GoneWrong.Player.instance.transform.position + GoneWrong.Player.instance.transform.forward,
-                        Quaternion.Euler(_inventory.consumables[indexAtConsumableList].item.collectableConsumable.instantiateRotation));
-
-                    // We play the drop consumable sound
-                    _inventory.consumables[indexAtConsumableList].item.collectableConsumable.PlayDropSound();
-
-                    _inventory.consumables[indexAtConsumableList].item = null;
-                    _inventory.consumables.RemoveAt(indexAtConsumableList);
-                }
                 break;
         }
 

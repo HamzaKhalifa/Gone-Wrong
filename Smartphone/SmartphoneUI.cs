@@ -16,6 +16,8 @@ public class SmartphoneUI : MonoBehaviour
     [SerializeField] private Text _nameAndTimeText = null;
     [SerializeField] private GameObject _messagesContainer = null;
 
+    [SerializeField] private AudioClip _callSignalSound = null;
+
     [Header("Single Message parts")]
     [SerializeField] private GameObject _singleMessageContainer = null;
     [SerializeField] private Image _callerImage = null;
@@ -30,10 +32,13 @@ public class SmartphoneUI : MonoBehaviour
     private int _selectedMessageIndex = -1;
     private ScrollRect _scrollRect = null;
 
+    private Queue<int> _messagesQueue = new Queue<int>();
+    private IEnumerator _messagesQueueCoroutine = null;
+
     // Cache variables
     private AudioSource _audioSource = null;
 
-    private void Awake()
+    private void Start()
     {
         instance = this;
 
@@ -91,6 +96,12 @@ public class SmartphoneUI : MonoBehaviour
         if (_nameAndTimeText != null)
         {
             _nameAndTimeText.text = GoneWrong.Player.instance.playerName;
+        }
+
+        if (_messagesQueueCoroutine == null && _messagesQueue.Count > 0)
+        {
+            _messagesQueueCoroutine = PlayMessageCoroutine(_messagesQueue.Dequeue());
+            StartCoroutine(_messagesQueueCoroutine);
         }
 
         // If we are not looking at the smartphone, then we don't need to do anything
@@ -174,13 +185,20 @@ public class SmartphoneUI : MonoBehaviour
             float scrollAmount;
             //scrollAmount = ((Mathf.Floor(_hoveredMessageIndex / 3) * 3) - 1 ) * _scrollValue;
             scrollAmount = (1 - (_hoveredMessageIndex / (float)(_messagePrefabs.Count - 1)));
-            Debug.Log(scrollAmount);
             _scrollRect.verticalNormalizedPosition = scrollAmount;
         }
     }
 
     public void SelectMessage(Messages message, int messageIndex)
     {
+        // We first dequeue everything
+        _messagesQueue.Clear();
+        if (_messagesQueueCoroutine != null)
+        {
+            StopCoroutine(_messagesQueueCoroutine);
+            _messagesQueueCoroutine = null;
+        }
+
         // We play the select message sound
         if (GoneWrong.AudioManager.instance != null && _selectMessageSound != null)
         {
@@ -207,12 +225,43 @@ public class SmartphoneUI : MonoBehaviour
         }
     }
 
+    public void EnqueueLastMessage()
+    {
+        if (_messagePrefabs.Count > 0)
+            _messagesQueue.Enqueue(_messagePrefabs.Count - 1);
+    }
+
+    // Playing messages directly when we collide with a message checkpoint
+    private IEnumerator PlayMessageCoroutine(int index)
+    {
+        if (_callSignalSound != null)
+        {
+            _audioSource.clip = _callSignalSound;
+            _audioSource.Play();
+
+            yield return new WaitForSeconds(_callSignalSound.length);
+        }
+
+        if (_messagePrefabs.Count > index && _audioSource != null)
+        {
+            _audioSource.clip = _messagePrefabs[index].message.messageAudioClip;
+            _audioSource.Play();
+            yield return new WaitForSeconds(_messagePrefabs[index].message.messageAudioClip.length);
+        }
+
+        _messagesQueueCoroutine = null;
+    }
+
     public void DeselectMessage()
     {
         _selectedMessageIndex = -1;
-        // And we stop the audio source
-        _audioSource.clip = null;
-        _audioSource.Stop();
+
+        // And we stop the audio source only if we are not playing enqueued messages
+        if (_messagesQueueCoroutine == null)
+        {
+            _audioSource.clip = null;
+            _audioSource.Stop();
+        }
 
         if (_messagesListContainer != null)
             _messagesListContainer.SetActive(true);

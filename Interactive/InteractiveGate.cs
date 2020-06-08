@@ -5,6 +5,7 @@ using UnityEngine;
 public class InteractiveGate : MonoBehaviour
 {
     [SerializeField] private List<AudioClip> _sounds = new List<AudioClip>();
+    [SerializeField] private List<Switch> _switches = new List<Switch>();
 
     // Cached variables
     private Animator _animator = null;
@@ -43,6 +44,15 @@ public class InteractiveGate : MonoBehaviour
             {
                 _audioSource.Stop();
             }
+        }
+    }
+
+    public void SetSwitchCanInteract(int canInteract)
+    {
+        if (_switches.Count > 0)
+        {
+            foreach(Switch aSwitch in _switches)
+                aSwitch.canInteract = canInteract == 0 ? false : true;
         }
     }
 }

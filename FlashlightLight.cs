@@ -21,6 +21,8 @@ public class FlashlightLight : MonoBehaviour
 
     private void Update()
     {
+        if (_mainCamera == null) return;
+
         transform.position = _mainCamera.transform.position - _difference;
         transform.rotation = Quaternion.Lerp(transform.rotation, _mainCamera.transform.rotation, _followSpeed * Time.deltaTime);
     }

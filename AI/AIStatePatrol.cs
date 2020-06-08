@@ -82,7 +82,8 @@ public class AIStatePatrol : AIState
 
         try
         {
-            _stateMachine.navMeshAgent.ResetPath();
+            if (_stateMachine.navMeshAgent != null)
+                _stateMachine.navMeshAgent.ResetPath();
         } catch (Exception e) { Debug.Log(e.Message); }
 
         _stateMachine.animator.SetBool(_stateMachine.turningRightHash, false);
@@ -97,7 +98,7 @@ public class AIStatePatrol : AIState
             && !_stateMachine.navMeshAgent.pathPending
             && _stateMachine.gameObject.activeSelf)
         {
-            if (_stateMachine.navMeshAgent.remainingDistance <= _stateMachine.navMeshAgent.stoppingDistance)
+            if (_stateMachine.navMeshAgent.enabled && _stateMachine.navMeshAgent.remainingDistance <= _stateMachine.navMeshAgent.stoppingDistance)
             {
                 if (!_stateMachine.navMeshAgent.hasPath || _stateMachine.navMeshAgent.velocity.sqrMagnitude == 0f)
                 {

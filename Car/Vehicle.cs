@@ -24,7 +24,7 @@ public class Vehicle : MonoBehaviour {
     }
 
     [SerializeField] private bool _canPassToExternalCamera = false;
-
+    [SerializeField] private bool _enginePitch = true;
     [SerializeField] private float _engineTorque = 300f;
     [SerializeField] private float _maxSteering = 30f;
     [SerializeField] private float _brakeTorque = 5000f;
@@ -57,7 +57,7 @@ public class Vehicle : MonoBehaviour {
 
     [Header("Sounds")]
     [SerializeField] private AudioClip _idleSound = null;
-    [SerializeField] private List<AudioClip> _rpmSounds = new List<AudioClip>();
+    [SerializeField] private AudioClip _drivingSound = null;
     [SerializeField] private AudioClip _drivingBackwardSound = null;
     [SerializeField] private AudioClip _brakeSound = null;
     [SerializeField] private AudioClip _startUpSound = null;
@@ -77,6 +77,7 @@ public class Vehicle : MonoBehaviour {
     // Public accesors
     public AudioClip collisionWithBodySound { get { return _collisionWithBodySound; } }
     public List<AudioClip> damageSounds { get { return _damageSounds; } }
+    public AudioClip startUpSound { get { return _startUpSound; } }
 
     Rigidbody rb;
     AudioSource _audioSource = null;
@@ -249,7 +250,13 @@ public class Vehicle : MonoBehaviour {
 
         if (player == null) return;
 
-        if (Vector3.Dot(transform.up, Vector3.down) > 0)
+        // The dot product of vector a and b is equal to: a.magnitude * b.magnitude * cos(angle)
+        // In this case, the dot product is equal to con(angle) only because the vectors are normalized
+        // the dot product's value is between -1 and 1.
+        // -1 when the car up vector makes a 180 angle with the world down vector
+        // 1 when the car up vector makes a 0 angle with the world down vector
+        // When the angle is between -90 and 90, cos(angle) is superior to 0
+        if (Vector3.Dot(transform.up, Vector3.down) > -0.5f)
         {
             player.inReversedCar = true;
         } else
@@ -260,7 +267,7 @@ public class Vehicle : MonoBehaviour {
 
     public void SwitchCamera(bool mainCamera)
     {
-        if (ExternalCamera.instance == null) return;
+        if (ExternalCamera.instance == null || _externalCameraPositionTransform == null) return;
 
         ExternalCamera.instance.transform.position = transform.position;
         _mainCamera.enabled = mainCamera;
@@ -269,15 +276,12 @@ public class Vehicle : MonoBehaviour {
         Camera externalCameraCamera = ExternalCamera.instance.GetComponentInChildren<Camera>();
 
         // Setting the camera position
-        if (_externalCameraPositionTransform != null)
-        {
-            externalCameraCamera.transform.position = _externalCameraPositionTransform.transform.position;
-            externalCameraCamera.transform.rotation = _externalCameraPositionTransform.transform.rotation;
-        }
+        externalCameraCamera.transform.position = _externalCameraPositionTransform.transform.position;
+        externalCameraCamera.transform.rotation = _externalCameraPositionTransform.transform.rotation;
 
         _mainCamera.GetComponent<AudioListener>().enabled = mainCamera;
         ExternalCamera.instance.gameObject.SetActive(!mainCamera);
-        ExternalCamera.instance.target = transform;
+        ExternalCamera.instance.target = _externalCameraPositionTransform;
     }
 
     void FixedUpdate()
@@ -360,20 +364,7 @@ public class Vehicle : MonoBehaviour {
 
         AudioClip clip;
 
-        clip = _torque == 0 ? _idleSound : _torque > 0 ? _rpmSounds.Count > 0 ? _rpmSounds[0] : null : _drivingBackwardSound;
-
-        if (_torque > 0)
-        {
-            for (int i = _rpms.Count - 1; i >= 0; i--)
-            {
-                if (rb.velocity.magnitude > _rpms[i])
-                {
-                    if (_rpmSounds.Count > i)
-                        clip = _rpmSounds[i];
-                    break;
-                }
-            }
-        }
+        clip = _torque >= 0 ? _idleSound : _drivingBackwardSound;
 
         // For skidding/brake sound
         if (Input.GetKeyDown(KeyCode.Space) && rb.velocity.magnitude > 0)
@@ -381,24 +372,58 @@ public class Vehicle : MonoBehaviour {
             _skidding = true;
         }
 
-        if ((Input.GetKeyUp(KeyCode.Space) || rb.velocity.magnitude < 1f))
+        if (Input.GetKeyUp(KeyCode.Space) || rb.velocity.magnitude < 1f)
         {
             _skidding = false;
         }
 
-        if (_skidding) clip = _brakeSound;
+        if (_skidding) {
+            clip = _brakeSound;
+        }
         else
         {
             // If we are not skidding but still have skidding as the current audio source
             if (_audioSource.clip == _brakeSound)
             {
-                _audioSource.clip = _idleSound;
+                clip = _idleSound;
             }
         }
 
-        if (_audioSource.clip != clip && clip != null)
+        // Managing pitch:
+        if (_enginePitch)
         {
-            //_audioSource.Stop();
+            float pitch = 0f;
+            if (clip == _drivingBackwardSound)
+            {
+                // If we are driving backwards, the sound pitch should always be equal to 1
+                pitch = 1;
+            }
+            else
+            {
+                if (_skidding)
+                {
+                    pitch = 1;
+                }
+                else
+                {
+                    // 3 - 1 expresses the pitch max andd min values
+                    //pitch = (rb.velocity.magnitude / (_maxSpeed / (3 - 1))) + 1;
+                    pitch = ((rb.velocity.magnitude * 2) / _maxSpeed) + 1;
+
+                }
+            }
+            _audioSource.pitch = pitch;
+        } else
+        {
+            _audioSource.pitch = 1;
+            if (clip == _idleSound && _torque > 0)
+            {
+                clip = _drivingSound;
+            }
+        }
+
+        if ((_audioSource.clip != clip || _audioSource.clip == null) && clip != null)
+        {
             _audioSource.clip = clip;
             _audioSource.Play();
             _audioSource.loop = true;
@@ -423,11 +448,6 @@ public class Vehicle : MonoBehaviour {
 
     private void OnEnable()
     {
-        if (_startUpSound != null && GoneWrong.AudioManager.instance != null && Time.time > 10f)
-        {
-            GoneWrong.AudioManager.instance.PlayOneShotSound(_startUpSound, 1, 0, 0, transform.position);
-        }
-
         // We activate smokes
         foreach(Smoke smoke in _smokes)
         {
@@ -448,10 +468,11 @@ public class Vehicle : MonoBehaviour {
 
     private void OnDisable()
     {
-        // We deactive all sounds
+        // We deactive all sounds and remove the audio clip
         if (_audioSource != null)
         {
             _audioSource.Stop();
+            _audioSource.clip = null;
         }
 
         // We deactivate smokes

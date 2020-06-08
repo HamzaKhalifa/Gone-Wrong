@@ -18,19 +18,14 @@ public class ExternalCamera : MonoBehaviour
     public Transform target { set { _target = value; } }
 
     // Private
-    private Camera _camera = null;
+    //private Camera _camera = null;
 
     private void Start()
     {
         instance = this;
         gameObject.SetActive(false);
 
-        _camera = GetComponentInChildren<Camera>();
-    }
-
-    private void Update()
-    {
-
+        //_camera = GetComponentInChildren<Camera>();
     }
 
     void FixedUpdate()
@@ -40,10 +35,27 @@ public class ExternalCamera : MonoBehaviour
             Vector3 positionSmoothness = Vector3.zero;
             transform.position = Vector3.SmoothDamp(transform.position, _target.transform.position, ref positionSmoothness, _positionSmoothness);
 
-            transform.rotation = Quaternion.Lerp(transform.rotation, Quaternion.Euler(0, _target.transform.rotation.eulerAngles.y, 0), _rotationSmoothness);
+            // For mouse movement
+            float mouseY = Input.GetAxis("Mouse Y");
+            float rotAmountY = mouseY * _mouseSensitivity;
+
+            Vector3 cameraRotation = transform.rotation.eulerAngles;
+            cameraRotation.x -= rotAmountY;
+
+            cameraRotation.x = Mathf.Min(Mathf.Max(cameraRotation.x, _min), _max);
+
+
+            // Finally, we assign the final rotation of the camera
+            transform.transform.rotation = Quaternion.Lerp(
+                transform.rotation,
+                Quaternion.Euler(
+                    Mathf.Min(Mathf.Max(cameraRotation.x, _min), _max),
+                    _target.transform.rotation.eulerAngles.y,
+                    _target.transform.rotation.eulerAngles.z),
+                _rotationSmoothness);
 
             // For mouse movement
-            if (_camera != null) {
+            /*if (_camera != null) {
                 float mouseY = Input.GetAxis("Mouse Y");
                 float rotAmountY = mouseY * _mouseSensitivity;
 
@@ -53,7 +65,25 @@ public class ExternalCamera : MonoBehaviour
                 mouseRotation.x = Mathf.Min(Mathf.Max(mouseRotation.x, _min), _max);
 
                 _camera.transform.rotation = Quaternion.Lerp(_camera.transform.rotation, Quaternion.Euler(mouseRotation), .4f);
-            }
+            }*/
+        }
+    }
+
+    // We should no longer be able to control the player camera when this is enabled
+    private void OnEnable()
+    {
+        if (CameraMovement.instance != null)
+        {
+            CameraMovement.instance.canControl = false;
+        }
+    }
+
+    // We revert back to being able to control the player camera when this is disabled
+    private void OnDisable()
+    {
+        if (CameraMovement.instance != null)
+        {
+            CameraMovement.instance.canControl = true;
         }
     }
 }

@@ -5,19 +5,12 @@ using UnityEngine.UI;
 
 public class DestinationLogo : MonoBehaviour
 {
-
     [SerializeField] Text _destinationDistanceText = null;
     [SerializeField] SharedFloat _destinationDistanceSharedFloat = null;
     [SerializeField] Image _destinationLogo = null;
 
     [SerializeField] SharedFloat _angleWithHorizontalShredFloat = null;
     [SerializeField] SharedFloat _angleWithCameraUpSharedFloat = null;
-
-    // Start is called before the first frame update
-    void Start()
-    {
-        
-    }
 
     // Update is called once per frame
     void Update()
@@ -34,7 +27,7 @@ public class DestinationLogo : MonoBehaviour
             float angleWithVertical = _angleWithCameraUpSharedFloat.value;
 
             float screenWidth = 600;
-            float screenHeight = 400;
+            float screenHeight = 300;
 
             float logoXPosition = Mathf.Clamp(screenWidth * angleWithHorizontal / 90, -screenWidth, screenWidth);
             float angleWithVerticalValue = 0;

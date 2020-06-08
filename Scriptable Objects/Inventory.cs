@@ -57,6 +57,11 @@ public class Inventory : ScriptableObject, ISerializationCallbackReceiver
 
     public void OnAfterDeserialize()
     {
+        InitializeInventory();
+    }
+
+    public void InitializeInventory()
+    {
         _rifle1 = new InventoryWeaponMount();
         _rifle2 = new InventoryWeaponMount();
         _handgun = new InventoryWeaponMount();
@@ -106,7 +111,9 @@ public class Inventory : ScriptableObject, ISerializationCallbackReceiver
             consumableMount.item = _consumableMounts[i].item;
 
             if (!_consumables.Contains(_consumableMounts[i]))
+            {
                 _consumables.Add(consumableMount);
+            }
         }
 
         for (int i = 0; i < _messagesMounts.Count; i++)

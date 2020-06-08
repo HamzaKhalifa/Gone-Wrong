@@ -11,6 +11,7 @@ public class Destination : MonoBehaviour
     [SerializeField] SharedFloat _angleWithCameraUpSharedFloat = null;
 
     private Camera _camera = null;
+    private Transform _destination = null;
 
     public Camera theCamera { get { return _camera; } set { _camera = value; } }
 
@@ -22,6 +23,11 @@ public class Destination : MonoBehaviour
 
     private void Update()
     {
+        if (_destination != null)
+        {
+            transform.position = _destination.position;
+        }
+
         if (GoneWrong.Player.instance != null && _distanceSharedFloat != null)
         {
             GoneWrong.Player player = GoneWrong.Player.instance;
@@ -56,8 +62,7 @@ public class Destination : MonoBehaviour
 
     public void SetNewDestination(Transform newDestination)
     {
-        if (newDestination != null) 
-            transform.position = newDestination.position;
+        _destination = newDestination;
     }
 
     public void ChangeLevelObjectiveText(string text)
@@ -71,9 +76,17 @@ public class Destination : MonoBehaviour
 
     public void ChangeMusic(AudioClip audioClip)
     {
-        if (audioClip == null || GoneWrong.AudioManager.instance == null) return;
+        if (GoneWrong.AudioManager.instance == null || audioClip == null) return;
 
         GoneWrong.AudioManager.instance.ChangeMusic(audioClip);
+    }
+
+    public void StopMusic()
+    {
+        if (GoneWrong.AudioManager.instance != null)
+        {
+            GoneWrong.AudioManager.instance.StopMusic();
+        }
     }
 
     public void SetFog(bool fogEnabled)

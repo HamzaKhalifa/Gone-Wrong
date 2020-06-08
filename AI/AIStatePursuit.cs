@@ -7,6 +7,7 @@ using System;
 public class AIStatePursuit : AIState
 {
     [SerializeField] private bool _TurnToPlayerAfterDone = false;
+    [SerializeField] private float _screamAnimationDelay = 2f;
 
     private float _newDestinationDelay = 1f;
     private float _newDestinationTimer = 0f;
@@ -16,7 +17,6 @@ public class AIStatePursuit : AIState
     private int _agonizeHash = Animator.StringToHash("Agonize");
     private int _struggleHash = Animator.StringToHash("Struggle");
 
-    private float _screamAnimationDelay = 2f;
     private float _screamAnimationTimer = 0f;
     private float _timeSpentNotMoving = 0f;
     private float _initialSpeed = 0f;
@@ -51,7 +51,9 @@ public class AIStatePursuit : AIState
             if (!_useRootPosition)
                 _stateMachine.navMeshAgent.speed = 0;
 
-            _stateMachine.transform.rotation = Quaternion.LookRotation(_stateMachine.currentTarget.position - _stateMachine.transform.position);
+            if (_useRootRotation)
+                _stateMachine.transform.rotation = Quaternion.LookRotation(_stateMachine.currentTarget.position - _stateMachine.transform.position);
+
             _stateMachine.animator.SetTrigger(_screamHash);
 
             _screamAnimationTimer = 0f;
@@ -84,6 +86,10 @@ public class AIStatePursuit : AIState
             if (_stateMachine.navMeshAgent.hasPath && !_stateMachine.navMeshAgent.isPathStale)
             {
                 _stateMachine.navMeshAgent.speed = _initialSpeed * 2;
+                /*if (!_useRootPosition && _stateMachine.takingDamage)
+                {
+                    _stateMachine.navMeshAgent.speed = 0f;
+                }*/
 
                 _stateMachine.animator.SetInteger(_stateMachine.speedhHash, 2);
 
@@ -204,7 +210,7 @@ public class AIStatePursuit : AIState
             _stateMachine.navMeshAgent.speed = _initialSpeed;
         }
 
-        if (_stateMachine.IsAgentOnNavMesh(_stateMachine.gameObject))
+        if (_stateMachine.IsAgentOnNavMesh(_stateMachine.gameObject) && _stateMachine.navMeshAgent.enabled)
             _stateMachine.navMeshAgent.ResetPath();
 
         base.OnStateExit();

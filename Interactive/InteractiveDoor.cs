@@ -96,9 +96,10 @@ public class InteractiveDoor : InteractiveObject
         }
     }
 
-    public override void Interact(Transform interactor)
+    public bool ProgressionConditionsMet()
     {
-        bool validProgress = true; 
+        bool validProgress = true;
+
         if (_openProgressConditions.Count > 0 && ProgressManager.instance != null)
         {
             foreach (GameProgress entry in _openProgressConditions)
@@ -110,6 +111,13 @@ public class InteractiveDoor : InteractiveObject
             }
         }
 
+        return validProgress;
+    }
+
+    public override bool Interact(Transform interactor)
+    {
+        bool validProgress = ProgressionConditionsMet();
+
         if (!_canOpen || !validProgress)
         {
             if (_cantOpenSound != null && GoneWrong.AudioManager.instance != null)
@@ -118,31 +126,27 @@ public class InteractiveDoor : InteractiveObject
             }
 
             _text = _lockedText;
+            if (_changeTextCouroutine != null)
+                StopCoroutine(_changeTextCouroutine);
             _changeTextCouroutine = ChangeText();
             StartCoroutine(_changeTextCouroutine);
 
-            return;
-        }
-
-        // If we are about to end the level and load the next scene
-        if (_endLevel)
-        {
-            // There is an automatic save data, before going from a level to another
-            if (SaveGame.instance != null) SaveGame.instance.Save();
-
-            if (Loading.instance != null)
-            {
-                Loading.instance.SetLoading(true);
-            }
-
-            SceneManager.LoadScene(_nextScene);
-            Cursor.visible = true;
-            Cursor.lockState = CursorLockMode.None;
-            return;
+            return false;
         }
 
         // Here we call the base.Interact() to invoke the events
         base.Interact(interactor);
+
+        // If we are about to end the level and load the next scene
+        if (_endLevel)
+        {
+            if (ProgressManager.instance != null)
+            {
+                ProgressManager.instance.LoadScene(_nextScene);
+            }
+            
+            return false;
+        }
 
         if (_closedBoxCollider != null) _closedBoxCollider.enabled = _open;
         if (_openBoxCollider != null) _openBoxCollider.enabled = !_open;
@@ -181,6 +185,8 @@ public class InteractiveDoor : InteractiveObject
 
         ActivateDeactivateObjects(_childObjects, _open);
         ActivateDeactivateObjects(_parentObjects, !_open);
+
+        return true;
     }
 
     private void ActivateDeactivateObjects(List<GameObject> objects, bool activate)

@@ -25,11 +25,11 @@ public class CollectableConsumable : InteractiveObject
         base.Start();
     }
 
-    public override void Interact(Transform interactor)
+    public override bool Interact(Transform interactor)
     {
         // If this is an object that doesn't get destroyed after interacting with it, then we don't do anything the...
         // second time we interact with it, so to avoid overpicking the same collectable item.
-        if (!_destroyOnPick && _didInteract) return;
+        if (!_destroyOnPick && _didInteract) return false;
 
         if (PlayerInventoryUI.instance != null)
         {
@@ -67,7 +67,7 @@ public class CollectableConsumable : InteractiveObject
                         // We are calling base.interact at the end of the function so to avoid some objects destroying themselves before altering progress manager (Like the container in the industrial zone)
                         base.Interact(interactor);
 
-                        return;
+                        return true;
                     }
                 }
 
@@ -76,8 +76,12 @@ public class CollectableConsumable : InteractiveObject
                 _text = "Backpack is Full";
                 _changeTextCouroutine = ChangeText();
                 StartCoroutine(_changeTextCouroutine);
+
+                return false;
             }
         }
+
+        return false;
     }
 
     private IEnumerator ChangeText()

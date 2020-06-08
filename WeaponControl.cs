@@ -4,13 +4,28 @@ using UnityEngine;
 
 namespace GoneWrong
 {
+    public enum GazType
+    {
+        FireExtinguisher,
+        Fire
+    }
+
+    [System.Serializable]
+    public class Damage
+    {
+        public float distance = 100f;
+        public float damage = 10f;
+    }
+
     public class WeaponControl : MonoBehaviour
     {
         [SerializeField] InventoryWeapon _inventoryWeapon = null;
-        [SerializeField][Range(1, 100)] private float _damage = 10f;
-        [SerializeField] AudioClip _putAwaySound = null;
-        [SerializeField] AudioClip _selectSound = null;
-        [SerializeField] List<AudioClip> _reloadSounds = new List<AudioClip>();
+        [SerializeField] private float _damage = 10f;
+        [SerializeField] private bool _decapitator = false;
+        [SerializeField] private bool _damageDependsOnDistance = false;
+        [SerializeField] private List<Damage> _damages = new List<Damage>();
+        [SerializeField] private bool _gazWeapon = false;
+        [SerializeField] private ParticleSystem _bloodParticles = null;
 
         [Header("For Melee")]
         [SerializeField] List<AudioClip> _hitSounds = new List<AudioClip>();
@@ -25,23 +40,54 @@ namespace GoneWrong
         [SerializeField] ParticleSystem _impact = null;
         [SerializeField] GameObject _multipleImpactObject = null;
         [SerializeField] ParticleSystem _weaponSmoke = null;
+        [SerializeField] int _smokeEmitted = 5;
         [SerializeField] GameObject _muzzleFlash = null;
+
+        [Header("For automatic gun")]
+        [SerializeField] private bool _isAutomatic = false;
+        [SerializeField] private float _fireRate = .2f;
+        [SerializeField] private float _recoil = .1f;
+        private float _fireTimer = 0f;
+        private float _initialZValue = 0f;
+        private float _maxZValue = 0f;
+        private IEnumerator _recoilCoroutine = null;
+
+        [Header("For Gaz")]
+        [SerializeField] GazType _gazType = GazType.FireExtinguisher;
+
+        [SerializeField] AudioClip _putAwaySound = null;
+        [SerializeField] AudioClip _selectSound = null;
+        [SerializeField] List<AudioClip> _reloadSounds = new List<AudioClip>();
 
         [Header("Shared variables")]
         [SerializeField] Inventory _playerInventory = null;
         [SerializeField] SharedInt _equippedWeapon = null;
 
-        // Private
+        #region Cache Fields
+
+        private Animator _animator = null;
+        private AudioSource _audioSource = null;
+        private Player _player = null;
+
+        #endregion
+
+        #region Private Fields
+
         private float _putAwayDelay = .1f;
         private float _putAwayTimer = 0f;
         private float _selectDelay = .1f;
         private float _selectTimer = 0f;
         private float _muzzleFlashActiveDelay = .05f;
         private float _muzzleFlashTimer = 0f;
-
+        private bool _isReloading = false;
         private LayerMask _bulletLayerMask = -1;
+        private bool _isRunning = false;
 
-        // Hashes
+        #endregion
+
+
+        #region Animator Hashes
+
         private int _isMovingHash = Animator.StringToHash("IsMoving");
         private int _isRunningHash = Animator.StringToHash("IsRunning");
         private int _selectedHash = Animator.StringToHash("Selected");
@@ -49,29 +95,64 @@ namespace GoneWrong
         private int _realoadWeaponHash = Animator.StringToHash("Reload");
         private int _attackHash = Animator.StringToHash("Attack");
 
-        // Cache
-        private Animator _animator = null;
+        #endregion
+
+        #region Public Accessors
 
         public Animator animator { get { return _animator; } }
         public Inventory playerInventory { get { return _playerInventory; } }
         public SharedInt equippedWeapon { get { return _equippedWeapon; } }
         public InventoryWeapon inventoryWeapon { get { return _inventoryWeapon; } }
+        public bool isReloading { get { return _isReloading; } set { _isReloading = value; } }
+        public bool isRunning { set { _isRunning = value; } }
+
+        #endregion
 
         private void Start()
         {
             _bulletLayerMask = LayerMask.GetMask("Default", "BodyPart");
 
             _animator = GetComponent<Animator>();
+            _audioSource = GetComponent<AudioSource>();
+            _player = GoneWrong.Player.instance;
 
-            gameObject.SetActive(false);
+            if (_isAutomatic)
+            {
+                _fireTimer = _fireRate;
+                _initialZValue = transform.localPosition.z;
+                _maxZValue = _initialZValue + _recoil;
+            }
         }
 
         // Update is called once per frame
         void Update()
         {
-            if (Player.instance != null)
+            if (_player != null)
             {
                 _animator.SetBool(_isMovingHash, GoneWrong.Player.instance.isMoving);
+
+                if (_isAutomatic)
+                {
+                    if (_player.isShooting && !_isRunning)
+                    {
+                        if (_fireTimer >= _fireRate)
+                        {
+                            Fire();
+                            _fireTimer = 0f;
+
+                            // Handle recoil (in automatic fire, there is no animation, so we handle the recoil ourselves)
+                            _recoilCoroutine = Recoil();
+                            StartCoroutine(_recoilCoroutine);
+                        }
+
+                        _fireTimer += Time.deltaTime;
+                    }
+                    else
+                    {
+                        _fireTimer = _fireRate;
+                        _animator.enabled = true;
+                    }
+                }
             }
 
             if (_muzzleFlashTimer <= 0 && _muzzleFlash != null)
@@ -82,6 +163,15 @@ namespace GoneWrong
             _putAwayTimer = Mathf.Max(0, _putAwayTimer -= Time.deltaTime);
             _selectTimer = Mathf.Max(0, _selectTimer -= Time.deltaTime);
             _muzzleFlashTimer = Mathf.Max(0, _muzzleFlashTimer -= Time.deltaTime);
+
+        }
+
+        private void OnEnable()
+        {
+            // In case we disable the weapon while reloading, the reloading is still gonna be set to true,
+            // So we won't be able to fire
+            // So we reset it to false
+            _isReloading = false;
         }
 
         public void Fire()
@@ -105,7 +195,7 @@ namespace GoneWrong
                     }
 
                     // Bullet sound
-                    if (_bulletSound != null && AudioManager.instance != null)
+                    if (_bulletSound != null && AudioManager.instance != null && !_gazWeapon)
                     {
                         AudioManager.instance.PlayOneShotSound(_bulletSound, 1, 0, 0);
                     }
@@ -116,15 +206,16 @@ namespace GoneWrong
                         if (_weaponSmoke != null)
                         {
                             _weaponSmoke.transform.position = _bulletPosition.position;
-                            _weaponSmoke.Emit(5);
+                            _weaponSmoke.Emit(_smokeEmitted);
                         }
+
                         if (_impact != null)
                         {
                             _impact.transform.position = _bulletPosition.position;
                             _impact.Emit(10);
                         }
 
-                        if (_multipleImpactObject != null)
+                        if (_multipleImpactObject != null && !_gazWeapon)
                         {
                             _multipleImpactObject.transform.position = _bulletPosition.position;
                             foreach (Transform child in transform)
@@ -147,25 +238,83 @@ namespace GoneWrong
                     // We make a simple ray cast.
                     else
                     {
-                        Ray ray = Camera.main.ScreenPointToRay(new Vector2(Screen.width / 2, Screen.height / 2));
-                        RaycastHit hit;
-                        if (Physics.Raycast(ray, out hit, Mathf.Infinity, _bulletLayerMask) && _bulletHole != null)
+                        // If it's a normal fire weapon, we fire a bullet with a raycast
+                        if (!_gazWeapon)
                         {
-                            // If we hit an enemy, we are going to provoke damage
-                            if (hit.transform.gameObject.layer == LayerMask.NameToLayer("BodyPart"))
+                            // We create a ray
+                            Ray ray = Camera.main.ScreenPointToRay(new Vector2(Screen.width / 2, Screen.height / 2));
+                            RaycastHit hit;
+                            if (Physics.Raycast(ray, out hit, Mathf.Infinity, _bulletLayerMask) && _bulletHole != null)
                             {
-                                // Try getting the ai state machine
-                                AIStateMachine stateMachine = hit.transform.GetComponentInParent<AIStateMachine>();
-                                if (stateMachine != null)
+                                // If we hit an enemy, we are going to provoke damage
+                                if (hit.transform.gameObject.layer == LayerMask.NameToLayer("BodyPart"))
                                 {
-                                    stateMachine.TakeDamage(_damage, Player.instance.transform.position, hit);
+                                    if (GoneWrong.AudioManager.instance != null && _hitSounds.Count > 0)
+                                    {
+                                        AudioClip clip = _hitSounds[Random.Range(0, _hitSounds.Count)];
+                                        if (clip != null)
+                                        {
+                                            GoneWrong.AudioManager.instance.PlayOneShotSound(clip, 1, 0, 1, hit.transform.position);
+                                        }
+                                    }
+
+                                    // We emit blood particles at the hit point
+                                    EmitBlood(hit);
+
+                                    // Try getting the ai state machine
+                                    AIStateMachine stateMachine = hit.transform.GetComponentInParent<AIStateMachine>();
+                                    if (stateMachine != null)
+                                    {
+                                        float damage = _damage;
+                                        if (_damageDependsOnDistance && _damages.Count > 0)
+                                        {
+                                            // By default, the damage should be equal to the least amount of damage
+                                            damage = _damages[_damages.Count - 1].damage;
+
+                                            float distance = (stateMachine.transform.position - GoneWrong.Player.instance.transform.position).magnitude;
+                                            for (int i = 0; i < _damages.Count; i++)
+                                            {
+                                                if (distance < _damages[i].distance)
+                                                {
+                                                    damage = _damages[i].damage;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        // Check if we can decapitate the part
+                                        AIDecapitation part = hit.transform.GetComponent<AIDecapitation>();
+
+                                        if (_decapitator && part != null)
+                                        {
+                                            // Only decapitate the parts that don't cause for an instant kill
+                                            if (!part.instantKill || part.CompareTag("Head"))
+                                                part.DecapitatePart(hit);
+                                        }
+
+                                        stateMachine.TakeDamage(damage, Player.instance.transform.position, hit);
+                                    }
+                                }
+                                // Else, we mot likely hit default geometry, so we instantiate the bullet hole
+                                else
+                                {
+                                    GameObject tmp = Instantiate(_bulletHole, hit.point, Quaternion.identity);
+                                    tmp.transform.forward = hit.normal;
+                                    tmp.transform.parent = hit.transform;
                                 }
                             }
-                            // Else, we mot likely hit default geometry, so we instantiate the bullet hole
-                            else
+                        } else {
+                            // This is a gaz weapon
+                            // Here, we cast a sphere for the gaz
+                            Ray ray = Camera.main.ScreenPointToRay(new Vector2(Screen.width / 2, Screen.height / 2));
+                            RaycastHit hitInfo;
+                            if (Physics.Raycast(ray, out hitInfo, 5f, LayerMask.GetMask("Barrier")))
                             {
-                                GameObject tmp = Instantiate(_bulletHole, hit.point, Quaternion.identity);
-                                tmp.transform.forward = hit.normal;
+                                Barrier barrier = hitInfo.transform.GetComponent<Barrier>();
+                                if (barrier != null)
+                                {
+                                    barrier.TakeDamage(_damage);
+                                }
                             }
                         }
                     }
@@ -187,6 +336,19 @@ namespace GoneWrong
             }
         }
 
+        public void EmitBlood(RaycastHit hit)
+        {
+            // We emit blood particles at the hit point
+            if (EffectsManager.instance != null && _bloodParticles != null)
+            {
+                ParticleSystem bloodParticlesTmp = Instantiate(_bloodParticles, hit.point + (Player.instance.transform.position - transform.position).normalized / 3, Quaternion.identity);
+                bloodParticlesTmp.transform.rotation = Quaternion.LookRotation(Player.instance.transform.position - transform.position);
+                bloodParticlesTmp.Play();
+
+                // We instantiate ground and wall blood splatters here:
+                EffectsManager.instance.SplatterBlood(hit.transform);
+            }
+        }
 
         public void SetAttack()
         {
@@ -203,20 +365,29 @@ namespace GoneWrong
             if(player != null)
             {
                 RaycastHit hit;
-                if (Physics.Raycast(player.transform.position, player.transform.forward, out hit, _hitRange, LayerMask.GetMask("BodyPart"))) { 
+                Ray ray = Camera.main.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
+                if (Physics.Raycast(ray, out hit, _hitRange, LayerMask.GetMask("BodyPart"))) {
+                    if (GoneWrong.AudioManager.instance != null && _hitSounds.Count > 0)
+                    {
+                        AudioClip clip = _hitSounds[Random.Range(0, _hitSounds.Count)];
+                        if (clip != null)
+                        {
+                            GoneWrong.AudioManager.instance.PlayOneShotSound(clip, 1, 0, 1);
+                        }
+                    }
+
+                    EmitBlood(hit);
+
                     AIStateMachine stateMachine = hit.transform.GetComponentInParent<AIStateMachine>();
                     if (stateMachine != null)
                     {
-                        //stateMachine.TakeDamage(_damage, player.transform.position, player.transform.position + player.transform.right);
                         stateMachine.TakeDamage(_damage, player.transform.position, hit, false, fromRight);
-                        if (GoneWrong.AudioManager.instance != null && _hitSounds.Count > 0)
+
+                        // Check if we can decapitate the part
+                        AIDecapitation part = hit.transform.GetComponent<AIDecapitation>();
+                        if (_decapitator && part != null)
                         {
-                            AudioClip clip = _hitSounds[Random.Range(0, _hitSounds.Count)];
-                            if (clip != null)
-                            {
-                                GoneWrong.AudioManager.instance.PlayOneShotSound(clip, 1, 0, 1);
-                            }
-                                
+                            part.DecapitatePart(hit);
                         }
                     }
                 }
@@ -225,7 +396,12 @@ namespace GoneWrong
 
 
         public float WeaponSelectOrDeselect(bool selected)
-        {            float clipLength = 0f;
+        {
+            float clipLength = 0f;
+
+            if (_animator == null)
+                _animator = GetComponent<Animator>();
+
             if (HasParameter("Selected", _animator))
             {
                 _animator.SetBool(_selectedHash, selected);
@@ -341,8 +517,11 @@ namespace GoneWrong
                         if (ammoMount.rounds == 0)
                         {
                             _playerInventory.ammo.RemoveAt(i);
-                            //_playerInventory.ammo[i].rounds = 0;
-                            //_playerInventory.ammo[i].item = null;
+                            // Repainte the playerInventory canvas
+                            if (PlayerInventoryUI.instance != null)
+                            {
+                                PlayerInventoryUI.instance.Repaint(false);
+                            }
                         }
 
                         // If we have attained the last round that can be loaded, then we force ourselves to stop reloading
@@ -371,8 +550,10 @@ namespace GoneWrong
                             roundsNeeded -= ammoMount.rounds;
                             weaponMount.rounds += ammoMount.rounds;
                             _playerInventory.ammo.RemoveAt(i);
-                            //_playerInventory.ammo[i].rounds = 0;
-                            //_playerInventory.ammo[i].item = null;
+                            if (PlayerInventoryUI.instance != null)
+                            {
+                                PlayerInventoryUI.instance.Repaint(false);
+                            }
                         }
                     }
                 }
@@ -381,11 +562,16 @@ namespace GoneWrong
 
         public static bool HasParameter(string paramName, Animator animator)
         {
-            foreach (AnimatorControllerParameter param in animator.parameters)
+            if (animator != null)
             {
-                if (param.name == paramName)
-                    return true;
+                foreach (AnimatorControllerParameter param in animator.parameters)
+                {
+                    if (param.name == paramName)
+                        return true;
+                }
+                return false;
             }
+
             return false;
         }
 
@@ -395,9 +581,12 @@ namespace GoneWrong
             _animator.SetBool(_isRunningHash, Player.instance.isRunning);
         }
 
+
         public void SetShooting()
         {
-            _animator.SetBool(_isShootingHash, Player.instance.isShooting);
+            if (!_isAutomatic)
+                _animator.SetBool(_isShootingHash, Player.instance.isShooting);
+            
         }
 
         public void PlayFootstepSound()
@@ -414,6 +603,60 @@ namespace GoneWrong
             {
                 Flashlight.instance.ActivateDeactivateLight(activate == 1 ? true : false, 0);
             }
+        }
+
+        public void HandleSound(bool activate)
+        {
+            if(_audioSource != null)
+            {
+                if (activate) {
+                    _audioSource.time = 0f;
+                    _audioSource.Play();
+                }
+                else _audioSource.Stop();
+            }
+        }
+
+        private IEnumerator Recoil()
+        {
+            _animator.enabled = false;
+
+            float timer = 0f;
+            float currentZValue = transform.localPosition.z;
+
+            float differenceWithCurrentZValue = _maxZValue - currentZValue;
+
+            float percentage = differenceWithCurrentZValue * 100 / _recoil;
+            float delay = (_fireRate / 2) * percentage / 100;
+
+            while (timer <= delay && differenceWithCurrentZValue > 0)
+            {
+                timer += Time.deltaTime;
+
+
+                float nextValue = currentZValue + (differenceWithCurrentZValue * timer / delay);
+
+                transform.localPosition = new Vector3(transform.localPosition.x, transform.localPosition.y,
+                      nextValue);
+
+                yield return null;
+            }
+
+            transform.localPosition = new Vector3(transform.localPosition.x, transform.localPosition.y, _maxZValue);
+
+            timer = 0f;
+            while (timer <= _fireRate / 2)
+            {
+                timer += Time.deltaTime;
+
+                transform.localPosition = new Vector3(transform.localPosition.x, transform.localPosition.y,
+                      _maxZValue - (_recoil * timer / (_fireRate / 2)));
+
+                yield return null;
+            }
+
+            //_animator.enabled = true;
+            transform.localPosition = new Vector3(transform.localPosition.x, transform.localPosition.y, _initialZValue);
         }
     }
 

@@ -7,17 +7,19 @@ public class CollectableAmmo : InteractiveObject
     [SerializeField] InventoryAmmoMount _ammoMount = null;
     [SerializeField] Inventory _playerInventory = null;
     [SerializeField] AudioClip _pickSound = null;
+    [SerializeField] private bool _canSave = true;
 
     private IEnumerator _changeTextCouroutine = null;
 
     public InventoryAmmoMount ammoMount { get { return _ammoMount; } }
+    public bool canSave { get { return _canSave; } }
 
     protected override void Start()
     {
         base.Start();
     }
 
-    public override void Interact(Transform interactor)
+    public override bool Interact(Transform interactor)
     {
         base.Interact(interactor);
 
@@ -45,7 +47,7 @@ public class CollectableAmmo : InteractiveObject
 
                         // And destroy this gameobject
                         Destroy(gameObject);
-                        return; 
+                        return true;
                     }
                 }
 
@@ -54,8 +56,12 @@ public class CollectableAmmo : InteractiveObject
                 _text = "Backpack is Full";
                 _changeTextCouroutine = ChangeText();
                 StartCoroutine(_changeTextCouroutine);
+
+                return false;
             }
         }
+
+        return false;
     }
 
     private IEnumerator ChangeText()

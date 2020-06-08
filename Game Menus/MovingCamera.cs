@@ -19,6 +19,9 @@ public class MovingCamera : MonoBehaviour
 
     void Start()
     {
+        Cursor.visible = true;
+        Cursor.lockState = CursorLockMode.None;
+
         if (_currentTransformIndex == -1 && _transforms.Count > 0)
         {
             _currentTransformIndex = 0;
@@ -62,6 +65,10 @@ public class MovingCamera : MonoBehaviour
 
     public void PassCinematic()
     {
+
+        Cursor.visible = false;
+        Cursor.lockState = CursorLockMode.Locked;
+
         // Here, we have finished the cinematic, so we activate the next object and we dectivate this one
         // We also call the on finish events
         if (_onFinishEvents != null)

@@ -6,6 +6,7 @@ using UnityEngine.SceneManagement;
 
 namespace GoneWrong
 {
+    [RequireComponent(typeof(CharacterController))]
     public class Player : MonoBehaviour
     {
         public static Player instance = null;
@@ -15,10 +16,11 @@ namespace GoneWrong
         [SerializeField] private float _gravity = 5f;
         [SerializeField] private float _walkSpeed = 1.5f;
         [SerializeField] private float _runSpeed = 3f;
-        [SerializeField] private float _jumpForce = 10f;
         [SerializeField] private GameObject _weaponHolder = null;
         [SerializeField] Inventory _playerInventory = null;
         [SerializeField] List<AudioClip> _damageSounds = new List<AudioClip>();
+        [SerializeField] List<AudioClip> _runningSounds = new List<AudioClip>();
+
         [SerializeField] Image _bloodScreen = null;
         [SerializeField] Image _deadImage = null;
         [SerializeField] AudioClip _crouchSound = null;
@@ -35,11 +37,14 @@ namespace GoneWrong
         [SerializeField] AudioClip[] _footStepsConcrete = null;
         [SerializeField] AudioClip[] _footStepsGrass = null;
         [SerializeField] AudioClip[] _footStepsWood = null;
+        [SerializeField] AudioClip[] _footStepsMetal = null;
         [SerializeField] List<AudioClip> _tauntSounds = new List<AudioClip>();
+        [SerializeField] private AudioClip _inventorySound = null;
+
+        // Cache
+        private CharacterController _characterController = null;
 
         // Private
-        private CharacterController _characterController = null;
-        private bool _isJumping = false;
         private bool _isRunning = false;
         private bool _isAttacking = false;
         private bool _isShooting = false;
@@ -59,6 +64,10 @@ namespace GoneWrong
         private bool _inReversedCar = false;
         private float _timeSpentBeingReversed = 0f;
         private bool _canMove = true;
+        private int _weaponIndex = -1;
+        private float _runningSoundTime = 0f;
+        private float _runningSoundDelay = 0f;
+        private IEnumerator _deadCoroutine = null;
 
 
         // Get the Horizontal and Vertical axes
@@ -66,6 +75,7 @@ namespace GoneWrong
         private float _horizontal = 0f;
 
         // Properties
+        public int weaponIndex { set { _weaponIndex = value; } }
         public bool canMove { get { return _canMove; } set { _canMove = value; } }
         public bool dead { get { return _dead; } }
         public Vector3 desiredMovement { get { return _desiredMovement; } }
@@ -95,13 +105,14 @@ namespace GoneWrong
             }
         }
         public bool inReversedCar { set { _inReversedCar = value; } }
+        public CharacterController characterController { get { return _characterController; } }
 
         public AudioClip footSteps
         {
             get
             {
                 RaycastHit hitInfo;
-                if (Physics.Raycast(transform.position, -transform.up, out hitInfo, 10, LayerMask.GetMask("Default", "DecorationBase", "Wood"))) {
+                if (Physics.Raycast(transform.position, -transform.up, out hitInfo, 10, LayerMask.GetMask("Default", "DecorationBase", "Wood", "Metal"))) {
                     if (LayerMask.LayerToName(hitInfo.transform.gameObject.layer) == "Default" && _footStepsConcrete.Length > 0)
                     {
                         AudioClip footStep = _footStepsConcrete[_nextFootStep];
@@ -120,7 +131,13 @@ namespace GoneWrong
                         if (_footStepsWood.Length > 0)
                             return _footStepsWood[Random.Range(0, _footStepsWood.Length)];
                         else return null;
-                    } else return null;
+                    } else if (LayerMask.LayerToName(hitInfo.transform.gameObject.layer) == "Metal")
+                    {
+                        if (_footStepsMetal.Length > 0)
+                            return _footStepsMetal[Random.Range(0, _footStepsMetal.Length)];
+                        else return null;
+                    }
+                    else return null;
                 }
                 else
                 {
@@ -133,6 +150,9 @@ namespace GoneWrong
         {
             get
             {
+                // Always return false if we can't move (so that we don't make the move animation in weapon control when we are loading a scene)
+                if (!_canMove) return false;
+
                 if (Mathf.Abs(_desiredMovement.x) > 0 || Mathf.Abs(_desiredMovement.z) > 0)
                 {
                     if (_characterController.isGrounded) { return true; }
@@ -150,6 +170,7 @@ namespace GoneWrong
             _staminaSharedFloat.value = 100;
             _infectionSharedFloat.value = 100;
 
+            // Getting cache variables
             _characterController = GetComponent<CharacterController>();
             if (_characterController != null)
                 _initialCharacterControllerHeight = _characterController.height;
@@ -160,6 +181,10 @@ namespace GoneWrong
             _equippedWeaponControl = _weaponHolder.GetComponentInChildren<GoneWrong.WeaponControl>();
 
             _initialCharacterControllerStepOffset = _characterController.stepOffset;
+
+            // We turn off the cursor after loading:
+            Cursor.visible = false;
+            Cursor.lockState = CursorLockMode.Locked;
         }
 
         private void Update()
@@ -173,9 +198,15 @@ namespace GoneWrong
             // We shouldn't be able to move or do anything once we are having a cinematic playing
             if (!_canMove)
             {
-                PlayerInventoryUI.instance.gameObject.SetActive(false);
+                if (PlayerInventoryUI.instance != null)
+                    PlayerInventoryUI.instance.gameObject.SetActive(false);
+                
                 if (_characterController.enabled)
                     _characterController.enabled = false;
+
+                // If we can't move, we stop the player from running
+                StopRunning();
+
                 return;
             }
             else if (!_characterController.enabled) _characterController.enabled = true;
@@ -187,11 +218,22 @@ namespace GoneWrong
             if (Input.GetKeyDown(KeyCode.Tab) && PlayerInventoryUI.instance != null)
             {
                 bool activate = !PlayerInventoryUI.instance.gameObject.activeSelf;
+
+                if (activate)
+                    PlayerInventoryUI.instance.Repaint(false);
+
                 PlayerInventoryUI.instance.gameObject.SetActive(activate);
                 if (PlayerHUD.instance != null)
                 {
                     PlayerHUD.instance.gameObject.SetActive(!activate);
                 }
+
+                // Play inventory sound
+                if (_inventorySound != null)
+                {
+                    AudioManager.instance.PlayOneShotSound(_inventorySound, 1, 0, 1);
+                }
+
                 if (activate)
                 {
                     Cursor.visible = true;
@@ -212,40 +254,43 @@ namespace GoneWrong
             }
 
             // Handle detecting items to interact with
-            RaycastHit[] hits;
-            Ray ray = Camera.main.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
-            hits = Physics.RaycastAll(ray, 2f, _interactiveLayer);
-            if (hits.Length > 0)
+            if (Camera.main != null)
             {
-                int higherPriority = 251;
-                int interactiveObjectIndex = -1;
-                for (int i = 0; i < hits.Length; i++)
+                RaycastHit[] hits;
+                Ray ray = Camera.main.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
+                hits = Physics.RaycastAll(ray, 2f, _interactiveLayer);
+                if (hits.Length > 0)
                 {
-                    InteractiveObject interactiveObject = hits[i].collider.transform.GetComponent<InteractiveObject>();
-                    if (interactiveObject != null && interactiveObject.priority < higherPriority)
+                    int higherPriority = 251;
+                    int interactiveObjectIndex = -1;
+                    for (int i = 0; i < hits.Length; i++)
                     {
-                        higherPriority = interactiveObject.priority;
-                        interactiveObjectIndex = i;
+                        InteractiveObject interactiveObject = hits[i].collider.transform.GetComponent<InteractiveObject>();
+                        if (interactiveObject != null && interactiveObject.priority < higherPriority)
+                        {
+                            higherPriority = interactiveObject.priority;
+                            interactiveObjectIndex = i;
+                        }
+                    }
+
+                    if (interactiveObjectIndex != -1)
+                    {
+                        InteractiveObject chosenInteractiveObject = hits[interactiveObjectIndex].collider.transform.GetComponent<InteractiveObject>();
+                        chosenInteractiveObject.ShowText();
+
+                        // Now that we are showing the interactive object text, we can interact with it
+                        if (Input.GetKeyDown(KeyCode.E))
+                        {
+                            chosenInteractiveObject.Interact(transform);
+                        }
                     }
                 }
-
-                if (interactiveObjectIndex != -1)
+                else
                 {
-                    InteractiveObject chosenInteractiveObject = hits[interactiveObjectIndex].collider.transform.GetComponent<InteractiveObject>();
-                    chosenInteractiveObject.ShowText();
-
-                    // Now that we are showing the interactive object text, we can interact with it
-                    if (Input.GetKeyDown(KeyCode.E))
+                    if (PlayerHUD.instance != null)
                     {
-                        chosenInteractiveObject.Interact(transform);
+                        PlayerHUD.instance.DeactivateInteractiveText();
                     }
-                }
-            }
-            else
-            {
-                if (PlayerHUD.instance != null)
-                {
-                    PlayerHUD.instance.DeactivateInteractiveText();
                 }
             }
 
@@ -259,12 +304,6 @@ namespace GoneWrong
             // Get the Horizontal and Vertical axes
             _vertical = Input.GetAxis("Vertical");
             _horizontal = Input.GetAxis("Horizontal");
-
-            // For jumping
-            if (Input.GetKeyDown(KeyCode.Space) && _characterController.isGrounded)
-            {
-                _isJumping = true;
-            }
 
             // Crouch button
             if (_characterController != null) {
@@ -293,21 +332,54 @@ namespace GoneWrong
             if (Input.GetKeyDown(KeyCode.LeftShift) && _characterController.isGrounded && _canRun)
             {
                 _isRunning = true;
-                _equippedWeaponControl.SetRun();
+                if (_equippedWeaponControl != null)
+                    _equippedWeaponControl.SetRun();
+
                 if (Flashlight.instance != null)
                     Flashlight.instance.SetRun();
             }
 
             if (Input.GetKeyUp(KeyCode.LeftShift))
             {
-                _isRunning = false;
-                _equippedWeaponControl.SetRun();
-                if (Flashlight.instance != null)
-                    Flashlight.instance.SetRun();
+                StopRunning();
             }
 
-            // To taunt
-            if (Input.GetKeyDown(KeyCode.T) && AudioThreatManager.instance != null)
+            // Handling running breaths
+            if (_runningSoundDelay > 0)
+            {
+                _runningSoundTime += Time.deltaTime;
+                if (
+                    // If we are running, we leave a certain threshold between heavy breaths
+                    (_isRunning && _runningSoundTime >= _runningSoundDelay - .2f)
+                    // Or we are not running but stamina is inferior to a certain value
+                    || (!_isRunning && _runningSoundTime >= _runningSoundDelay && _staminaSharedFloat.value < 70f)
+                    // But if we can't run, the margin beteween breaths should be bigger (he is recovering)
+                    || (!_canRun && _runningSoundTime >= _runningSoundDelay))
+                {
+                    _runningSoundTime = 0f;
+                    _runningSoundDelay = 0f;
+                }
+            }
+
+            if (_runningSoundTime == 0
+                && AudioManager.instance != null
+                && _runningSounds.Count > 0
+                && (_staminaSharedFloat.value < 70f || !_canRun))
+            {
+                AudioClip clip = _runningSounds[Random.Range(0, _runningSounds.Count)];
+
+                if (clip != null)
+                {
+                    _runningSoundTime += Time.deltaTime;
+                    _runningSoundDelay = clip.length;
+                    AudioManager.instance.PlayOneShotSound(clip, .5f, 0, 0, transform.position);
+                }
+            }
+
+            // Handle taunt
+            if (Input.GetKeyDown(KeyCode.T) && AudioThreatManager.instance != null
+                // We don't want to taunt in hospital
+                && SceneManager.GetActiveScene().buildIndex != 1)
             {
                 if (AudioManager.instance != null && _tauntSounds.Count > 0)
                 {
@@ -321,13 +393,13 @@ namespace GoneWrong
                 AudioThreatManager.instance.MakeNoise(20, 1, transform.position);
             }
 
-            // Decreasing stamina while running
+            // Handle decreasing stamina while running
             if (isRunning && _staminaSharedFloat != null)
             {
                 float newStaminaValue = _staminaSharedFloat.value - Time.deltaTime * 10;
                 _staminaSharedFloat.value = Mathf.Max(0, newStaminaValue);
             }
-            // Increasing stamina if not running
+            // Handle Increasing stamina if not running
             else
             {
                 if(_staminaSharedFloat.value != 100)
@@ -336,9 +408,10 @@ namespace GoneWrong
                 }
             } 
 
+            // Handle Attack
             if (Input.GetKeyDown(KeyCode.Mouse0) && _equippedWeapon != 0)
             {
-                if (_equippedWeapon != 4)
+                if (_equippedWeapon != 4 && !_equippedWeaponControl.isReloading)
                 {
                     _isShooting = true;
                     _equippedWeaponControl.SetShooting();
@@ -348,6 +421,7 @@ namespace GoneWrong
                 }
             }
 
+            // Handle stop attacking
             if (Input.GetKeyUp(KeyCode.Mouse0) && _equippedWeapon != 0)
             {
                 if (_equippedWeapon != 4)
@@ -357,50 +431,50 @@ namespace GoneWrong
                 }
             }
 
-            int weaponIndex = -1;
+            // Changing weapon
             if (Input.GetKeyDown(KeyCode.Y))
-                weaponIndex = 0;
+                _weaponIndex = 0;
             if (Input.GetKeyDown(KeyCode.U))
-                weaponIndex = 1;
+                _weaponIndex = 1;
             if (Input.GetKeyDown(KeyCode.I))
-                weaponIndex = 2;
+                _weaponIndex = 2;
             if (Input.GetKeyDown(KeyCode.O))
-                weaponIndex = 3;
+                _weaponIndex = 3;
             if (Input.GetKeyDown(KeyCode.P))
-                weaponIndex = 4;
+                _weaponIndex = 4;
 
             // Looking at the smartphone
             if (Smartphone.instance != null)
             {
                 // If we click the smartphone button
                 // or when we click to equip another weapon and the smartphone is equipped (we unquip it)
-                if (Input.GetKeyDown(KeyCode.S) || (weaponIndex != -1 && Smartphone.instance.looking))
+                if (Input.GetKeyDown(KeyCode.S) || (_weaponIndex != -1 && Smartphone.instance.looking))
                 {
                     // If we equip the smartphone, we automatically go to hands mode (no more equipped weapon)
                     // By setting the weaponIndex to 0
                     if (!Smartphone.instance.looking)
-                        weaponIndex = 0;
+                        _weaponIndex = 0;
                     Flashlight.instance.Look(false);
                     Smartphone.instance.Look(!Smartphone.instance.looking);
                 }
             }
 
+            // Handle flashlight
             if (Flashlight.instance != null) {
                 // We can still equip the flashlight if the selected weapon is a melee weapon
-                if(Input.GetKeyDown(KeyCode.F) || (weaponIndex != -1 && weaponIndex != 4 && Flashlight.instance.looking))
+                if(Input.GetKeyDown(KeyCode.F) || (_weaponIndex != -1 && _weaponIndex != 4 && Flashlight.instance.looking))
                 {
-                    if (weaponIndex != 4 && !Flashlight.instance.looking && _equippedWeapon != 4) weaponIndex = 0;
+                    if (_weaponIndex != 4 && !Flashlight.instance.looking && _equippedWeapon != 4) _weaponIndex = 0;
                     Smartphone.instance.Look(false);
                     Flashlight.instance.Look(!Flashlight.instance.looking);
                 }
             }
 
-            if (weaponIndex != -1)
+            if (_weaponIndex != -1)
             {
-                _weaponSwitchCoroutine = SwitchWeaponCoroutine(weaponIndex);
+                _weaponSwitchCoroutine = SwitchWeaponCoroutine(_weaponIndex);
                 StartCoroutine(_weaponSwitchCoroutine);
             }
-
 
             // Reload Weapon
             // We don't reload when the equipped weapon is either nothing (0) or a melee weapon (4)
@@ -430,15 +504,27 @@ namespace GoneWrong
             _bloodScreen.color = new Color(_bloodScreen.color.r, _bloodScreen.color.g, _bloodScreen.color.b, newOpacity);
         }
 
+        private void StopRunning()
+        {
+            _isRunning = false;
+
+            if (_equippedWeaponControl != null)
+                _equippedWeaponControl.SetRun();
+
+            if (Flashlight.instance != null)
+                Flashlight.instance.SetRun();
+        }
+
         private void FixedUpdate()
         {
-
             // We don't do anything if we have the inventory on or if we are dead or if we are inside a car
-            if (_dead || (PlayerInventoryUI.instance != null && PlayerInventoryUI.instance.gameObject.activeSelf) || _insideACar)
+            if (_dead || (PlayerInventoryUI.instance != null && PlayerInventoryUI.instance.gameObject.activeSelf) || _insideACar || !_canMove)
             {
                 _desiredMovement = Vector3.zero;
                 _isRunning = false;
-                _equippedWeaponControl.SetRun();
+
+                if (_equippedWeaponControl != null)
+                    _equippedWeaponControl.SetRun();
                 return;
             }
 
@@ -461,28 +547,22 @@ namespace GoneWrong
             float frontMove = _vertical * speed;
             float sideMove = _horizontal * speed;
 
-            _desiredMovement = transform.forward * frontMove + transform.right * sideMove;
+            if (_characterController.isGrounded)
+                _desiredMovement = transform.forward * frontMove + transform.right * sideMove;
 
             /*RaycastHit hitInfo;
-            if (Physics.SphereCast(transform.position, _characterController.radius, Vector3.down, out hitInfo, _characterController.height / 2f, 1))
+            if (Physics.SphereCast(transform.position, _characterController.radius, Vector3.down, out hitInfo, _characterController.height / 2f, LayerMask.GetMask("Default", "DecorationBase", "Stairs", "Wood", "Metal")))
             {
                 // This means we are standing on a surface
                 _desiredMovement = Vector3.ProjectOnPlane(_desiredMovement, hitInfo.normal);
             }*/
 
             // Gravity
-            if (!_isJumping)
+            if (!_characterController.isGrounded)
                 _desiredMovement.y -= _gravity;
 
-            // Handle Jump
-            if (_isJumping)
-            {
-                _desiredMovement = _desiredMovement + (transform.up * _jumpForce);
-                _isJumping = false;
-            }
-
             // Limiting our movement depending on the colliding enemies
-            foreach(AIStateMachine collidingEnemy in _collidingEnemies)
+            foreach (AIStateMachine collidingEnemy in _collidingEnemies)
             {
                 if (collidingEnemy.dead) continue;
 
@@ -490,7 +570,7 @@ namespace GoneWrong
                 if (Vector3.Angle(_desiredMovement, enemyDirection) < 60)
                 {
                     _desiredMovement.x = 0;
-                    _desiredMovement.y = 0;
+                    //_desiredMovement.y = 0;
                 }
             }
 
@@ -505,6 +585,8 @@ namespace GoneWrong
 
         IEnumerator SwitchWeaponCoroutine(int weaponIndex)
         {
+            _weaponIndex = -1;
+
             InventoryWeaponMount weaponMount = null;
             if (weaponIndex == 1) weaponMount = _playerInventory.rifle1;
             else if (weaponIndex == 2) weaponMount = _playerInventory.rifle2;
@@ -518,24 +600,37 @@ namespace GoneWrong
                 yield break;
             }
 
+            // When we switch the weapon and the weapon is not of type melee, we stop looking with the flashlight:
+            if (Flashlight.instance != null)
+            {
+                if (Flashlight.instance.looking && weaponIndex != 4 && weaponIndex != 0)
+                {
+                    Flashlight.instance.Look(false);
+                }
+
+                if (weaponIndex == 4)
+                {
+                    Flashlight.instance.Look(true);
+                }
+            }
+
             float deslectionClipLength = 0f;
 
             _equippedWeapon = weaponIndex;
 
-            // We only deactivate the weapon when the new one is not nothing. 
-            if (weaponIndex != 0)
+
+            // Then we set the previously selected weapon to inactive
+            // We need to check if the weapon hasn't been destroyed in a weapon replacement case
+            if (_equippedWeaponControl != null)
             {
-                //We deactivate the flashlight
-                if (Flashlight.instance != null && !Flashlight.instance.looking)
-                {
-                    Flashlight.instance.ActivateDeactivateLight(false, 0);
-                }
-                // Then we set the previously selected weapon to inactive
                 _equippedWeaponControl.gameObject.SetActive(false);
-            } else
+            }
+
+            // If the new weapon is nothing, we select the flashlight, otherwise, we deactivate the light
+            if (Flashlight.instance != null && !Flashlight.instance.looking)
             {
-                // We only play the put away animation when it's the last weapon
-                deslectionClipLength = _equippedWeaponControl.WeaponSelectOrDeselect(false);
+                Flashlight.instance.Look(_weaponIndex == 0);
+                Flashlight.instance.ActivateDeactivateLight(false, 0);
             }
 
             // Equipped weapons starts from 0 with 0 representing the melee (no weapon) index.
@@ -562,10 +657,13 @@ namespace GoneWrong
                 }
             }
 
-            if (_playerInventory != null)
+            if (_playerInventory != null && newEquippedWeaponControl != null)
             {
                 // We activate the new weapons and animate it
-                newEquippedWeaponControl.transform.gameObject.SetActive(true);
+                // But we only activate the weapon when it's not just the hands
+                if (weaponIndex != 0)
+                    newEquippedWeaponControl.transform.gameObject.SetActive(true);
+
                 newEquippedWeaponControl.WeaponSelectOrDeselect(true);
 
                 _equippedWeaponControl = newEquippedWeaponControl;
@@ -615,14 +713,20 @@ namespace GoneWrong
         {
             Cursor.visible = true;
             Cursor.lockState = CursorLockMode.None;
-            IEnumerator deadCoroutine = DeadCoroutine();
-            StartCoroutine(deadCoroutine);
+            if (_deadCoroutine == null)
+            {
+                _deadCoroutine = DeadCoroutine();
+                StartCoroutine(_deadCoroutine);
+            }
 
             //SceneManager.LoadScene(0);
         }
 
         IEnumerator DeadCoroutine()
         {
+            // We need to empty the player inventory after we die
+            _playerInventory.InitializeInventory();
+
             // Disable character controller to stop the zombie from attacking us
             _characterController.enabled = false;
 
@@ -661,6 +765,8 @@ namespace GoneWrong
                 SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
                 //SceneManager.LoadScene(0);
             }
+
+            _deadCoroutine = null;
         }
 
         private void OnTriggerEnter(Collider other)
@@ -712,6 +818,14 @@ namespace GoneWrong
             if (col.CompareTag("Stairs") && _characterController != null)
             {
                 _characterController.stepOffset = _initialCharacterControllerStepOffset;
+            }
+        }
+
+        private void OnControllerColliderHit(ControllerColliderHit hit)
+        {
+            if (hit.transform.CompareTag("Danger"))
+            {
+                Die();
             }
         }
 

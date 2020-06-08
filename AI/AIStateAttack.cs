@@ -59,7 +59,7 @@ public class AIStateAttack : AIState
         } // If there is no target
         else
         {
-            return AIStateType.Idle;
+            return AIStateType.Alert;
         }
 
         return AIStateType.Attacking;

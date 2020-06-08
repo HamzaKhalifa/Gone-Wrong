@@ -111,10 +111,23 @@ namespace GoneWrong
 
         public void ChangeMusic(AudioClip audioClip)
         {
-            if (_audioSource != null && audioClip != null)
+            if (_audioSource != null)
             {
                 _audioSource.clip = audioClip;
-                _audioSource.Play();
+                if(audioClip != null)
+                    _audioSource.Play();
+                else
+                {
+                    _audioSource.Stop();
+                }
+            }
+        }
+
+        public void StopMusic()
+        {
+            if (_audioSource != null)
+            {
+                _audioSource.Stop();
             }
         }
     }

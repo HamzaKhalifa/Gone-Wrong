@@ -22,8 +22,10 @@ public class ScreamBehavior : StateMachineBehaviour
     // OnStateUpdate is called on each Update frame between OnStateEnter and OnStateExit callbacks
     override public void OnStateUpdate(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
     {
-        //AIStateMachine stateMachine = animator.GetComponent<AIStateMachine>();
-        //stateMachine.navMeshAgent.speed = 0f;
+        /*AIStateMachine stateMachine = animator.GetComponent<AIStateMachine>();
+        AIStatePursuit statePursuit = animator.GetComponent<AIStatePursuit>();
+        if (!statePursuit.useRootPosition)
+            stateMachine.navMeshAgent.speed = 0f;*/
     }
 
     // OnStateExit is called when a transition ends and the state machine finishes evaluating this state

@@ -28,7 +28,7 @@ public class InteractiveCar : InteractiveObject
         }
     }
 
-    public override void Interact(Transform interactor)
+    public override bool Interact(Transform interactor)
     {
         base.Interact(interactor);
 
@@ -37,6 +37,8 @@ public class InteractiveCar : InteractiveObject
             _sitCoroutine = Sit();
             StartCoroutine(_sitCoroutine);
         }
+
+        return true;
     }
     public IEnumerator Sit()
     {
@@ -89,6 +91,16 @@ public class InteractiveCar : InteractiveObject
             yield return null;
         }
 
+        // Make sure we got the right values
+        player.transform.localPosition = Vector3.zero;
+        player.transform.localRotation = Quaternion.Euler(Vector3.zero);
+
+        // Make sure the main camera gets set to rotation zero after we get out
+        if (!_playerIn)
+        {
+            Camera.main.transform.localRotation = Quaternion.Euler(Vector3.zero);
+        }
+
         // We close the door after getting inside the car
         if (_carDoor != null && _playerIn)
         {
@@ -128,6 +140,12 @@ public class InteractiveCar : InteractiveObject
         // Activate the flashlight the moment the player gets out of the car
         if (!_playerIn && Flashlight.instance != null) {
             Flashlight.instance.Look(!Flashlight.instance.looking);
+        }
+
+        // Play the vehicle's startup sound:
+        if (_playerIn && player.drivedVehicle.startUpSound != null && GoneWrong.AudioManager.instance != null)
+        {
+            GoneWrong.AudioManager.instance.PlayOneShotSound(player.drivedVehicle.startUpSound, 1, 0, 0, transform.position);
         }
 
         _sitCoroutine = null;

@@ -4,6 +4,8 @@ using UnityEngine;
 
 public class CameraMovement : MonoBehaviour
 {
+    public static CameraMovement instance = null;
+
     [SerializeField] private float _sensitivity = 4f;
     [SerializeField] private GameObject _body = null;
     [SerializeField] private float _shakeIntensity = .1f;
@@ -16,11 +18,20 @@ public class CameraMovement : MonoBehaviour
     private Vector3 _maxLocalPosition = Vector3.zero;
     private Vector3 _minLocalPosition = Vector3.zero;
     private bool _shakingUp = true;
+    private bool _canControl = true;
 
     private float _xAxisClamp = 0f;
 
+    #region Public Accessors
+
+    public bool canControl { set { _canControl = value; } }
+
+    #endregion
+
     private void Awake()
     {
+        instance = this;
+
         Cursor.visible = false;
         Cursor.lockState = CursorLockMode.Locked;
 
@@ -30,8 +41,10 @@ public class CameraMovement : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        // We don't move the camera if we have the inventory on
-        if (PlayerInventoryUI.instance != null && PlayerInventoryUI.instance.gameObject.activeSelf)
+        // We don't move the camera if we have the inventory on.
+        // Or when we don't control the camera because we are having the quit menu showing
+        if ((PlayerInventoryUI.instance != null && PlayerInventoryUI.instance.gameObject.activeSelf)
+            || !_canControl)
         {
             return;
         }
@@ -53,9 +66,9 @@ public class CameraMovement : MonoBehaviour
         targetRotCam.z = 0;
         targetRotBody.y += rotAmountX;
 
-        if (_xAxisClamp > 80)
+        if (_xAxisClamp > 70)
         {
-            _xAxisClamp = 80;
+            _xAxisClamp = 70;
             targetRotCam.x = 80;
         }
         else if (_xAxisClamp < -90)

@@ -25,18 +25,22 @@ public class AIStateMachine : MonoBehaviour
 {
     [Header("For testing")]
     [SerializeField] private string _targetName = "";
+    [SerializeField] private float _distanceToPlayer = 0f;
 
     [Header("Animator controllers")]
     [SerializeField] private bool _randomAnimatorController = false;
     [SerializeField] List<RuntimeAnimatorController> _animatorControllers = new List<RuntimeAnimatorController>();
 
     [Header("Properties")]
+    [SerializeField] private bool _invincible = false;
     [SerializeField] private bool _screamer = true;
     [SerializeField] private bool _standStill = false;
+    [SerializeField] private bool _sensitiveToSound = true;
     [SerializeField] private bool _feelsGunHits = true;
     [SerializeField] private bool _feelsMeleeHits = true;
     [SerializeField] private bool _feelsLegHits = true;
     [SerializeField] private bool _feelsHeadHits = true;
+    [SerializeField] private bool _ragdollOnDead = false;
     [SerializeField] private bool _destroyOnDead = true;
     [SerializeField] private bool _isCrawling = false;
     [SerializeField][Range(20, 360)] private float _fieldOfView = 90f;
@@ -51,6 +55,7 @@ public class AIStateMachine : MonoBehaviour
     [SerializeField] private AudioClip _screamSound = null;
     [SerializeField] private bool _seeThroughWalls = false;
     [SerializeField] private UnityEvent _deathEvents = null;
+    [SerializeField] private List<GameProgress> _deadProgressAlteration = new List<GameProgress>();
 
     [Header("For Metamorphosis")]
     [SerializeField] private Material _normalShapeMaterial = null;
@@ -63,11 +68,13 @@ public class AIStateMachine : MonoBehaviour
     private bool _dead = false;
     private bool _isScreaming = false;
     private PeriodicEnemySpawner _spawner = null;
+    private bool _spawning = false;
 
     // Cache variables
     private NavMeshAgent _navMeshAgent = null;
     private Animator _animator = null;
     private AudioSource _mouthAudioSource = null;
+    private List<AIDecapitation> _parts = new List<AIDecapitation>();
 
     private Dictionary<AIStateType, AIState> _statesDictionary = new Dictionary<AIStateType, AIState>();
     private TargetTrigger _targetTrigger = null;
@@ -82,6 +89,7 @@ public class AIStateMachine : MonoBehaviour
     private List<SkinnedMeshRenderer> _skinnedMeshRenderers = new List<SkinnedMeshRenderer>();
     private bool _isTransformed = false;
     private bool _canPlayStateSound = true;
+    private float _initialSpeed = 0f;
 
     // Animator Hashes
     private int _speedHash = Animator.StringToHash("Speed");
@@ -114,8 +122,11 @@ public class AIStateMachine : MonoBehaviour
     private int _attackNumberHash = Animator.StringToHash("AttackNumber");
     private int _metamorphosisHash = Animator.StringToHash("Metamorphosis");
     private int _attachedDemonHash = Animator.StringToHash("Attached");
+    private bool _playingPainSound = false;
+    private IEnumerator _playingPainSoundCoroutine = null;
 
     // Properties
+    public bool spawning { get { return _spawning; } set { _spawning = value; } }
     public AIState currentState { get { return _currentState; } }
     public bool canPlayStateSound { get { return _canPlayStateSound; } }
     public Animator animator { get { return _animator; } }
@@ -160,6 +171,10 @@ public class AIStateMachine : MonoBehaviour
         } }
     public PeriodicEnemySpawner spawner { set { _spawner = value; } }
     public bool isTransformed { get { return _isTransformed; } }
+    public float initialSpeed { get { return _initialSpeed; } }
+    public bool standStill { get { return _standStill; } }
+    public bool sensitiveToSound { get { return _sensitiveToSound; } }
+    public bool playingPainSound { get { return _playingPainSound; } }
 
     private void Start()
     {
@@ -168,6 +183,11 @@ public class AIStateMachine : MonoBehaviour
         _animator = GetComponent<Animator>();
         _mouthAudioSource = GetComponent<AudioSource>();
         _targetTrigger = GetComponentInChildren<TargetTrigger>();
+        AIDecapitation[] parts = GetComponentsInChildren<AIDecapitation>();
+        foreach(AIDecapitation part in parts)
+        {
+            _parts.Add(part);
+        }
 
         HandleAnimatorController();
 
@@ -184,8 +204,9 @@ public class AIStateMachine : MonoBehaviour
         // We always have the rotation of the navmesh deactivated!
         // In fact, we either rotate with the root motion rotation of the turn around animation
         // Or we rotate it manually through code.
-        // In sum, the navmesh is only useful for calculating the path: steertingTarget :) 
-        _navMeshAgent.updateRotation = false;
+        // In sum, the navmesh is only useful for calculating the path: steertingTarget :)
+        if (_navMeshAgent != null)
+            _navMeshAgent.updateRotation = false;
 
         if (_targetTrigger != null)
         {
@@ -193,20 +214,42 @@ public class AIStateMachine : MonoBehaviour
         }
 
         // Storing states
-        _statesDictionary.Add(AIStateType.Idle, GetComponent<AIStateIdle>());
-        _statesDictionary.Add(AIStateType.Patrol, GetComponent<AIStatePatrol>());
-        _statesDictionary.Add(AIStateType.Pursuit, GetComponent<AIStatePursuit>());
-        _statesDictionary.Add(AIStateType.Attacking, GetComponent<AIStateAttack>());
-        _statesDictionary.Add(AIStateType.Alert, GetComponent<AIStateAlert>());
+        AIStateIdle stateIdle = GetComponent<AIStateIdle>();
+        if (stateIdle != null)
+        {
+            _statesDictionary.Add(AIStateType.Idle, stateIdle);
+            _statesDictionary[AIStateType.Idle].RegisterState(this);
+        }
 
-        // Registering states
-        _statesDictionary[AIStateType.Idle].RegisterState(this);
-        _statesDictionary[AIStateType.Patrol].RegisterState(this);
-        _statesDictionary[AIStateType.Pursuit].RegisterState(this);
-        _statesDictionary[AIStateType.Attacking].RegisterState(this);
-        _statesDictionary[AIStateType.Alert].RegisterState(this);
+        AIStatePatrol statePatrol = GetComponent<AIStatePatrol>();
+        if (statePatrol != null)
+        {
+            _statesDictionary.Add(AIStateType.Patrol, statePatrol);
+            _statesDictionary[AIStateType.Patrol].RegisterState(this);
+        }
 
-        if (_statesDictionary[AIStateType.Idle] != null)
+        AIStatePursuit statePursuit = GetComponent<AIStatePursuit>();
+        if (statePursuit != null)
+        {
+            _statesDictionary.Add(AIStateType.Pursuit, statePursuit);
+            _statesDictionary[AIStateType.Pursuit].RegisterState(this);
+        }
+
+        AIStateAttack stateAttack = GetComponent<AIStateAttack>();
+        if (stateAttack != null)
+        {
+            _statesDictionary.Add(AIStateType.Attacking, stateAttack);
+            _statesDictionary[AIStateType.Attacking].RegisterState(this);
+        }
+
+        AIStateAlert stateAlert = GetComponent<AIStateAlert>();
+        if (stateAlert != null)
+        {
+            _statesDictionary.Add(AIStateType.Alert, stateAlert);
+            _statesDictionary[AIStateType.Alert].RegisterState(this);
+        }
+
+        if (_statesDictionary.ContainsKey(AIStateType.Idle) && _statesDictionary[AIStateType.Idle] != null)
         {
             ChangeState(AIStateType.Idle);
         }
@@ -223,6 +266,10 @@ public class AIStateMachine : MonoBehaviour
         // At the beginning, we should always be able to scream
         _screamTimer = _screamDelay;
 
+        // Getting the navmesh agent initial speed for damageBehavior (in case we aren't using root rotation)
+        if (_navMeshAgent != null)
+            _initialSpeed = _navMeshAgent.speed;
+
         _initialVehicleStoppingDistance = _vehicleStoppingDistance;
     }
 
@@ -230,6 +277,21 @@ public class AIStateMachine : MonoBehaviour
     {
         // For testing:
         _targetName = _currentTarget != null ? _currentTarget.transform.name : "";
+        if (GoneWrong.Player.instance != null)
+            _distanceToPlayer = (GoneWrong.Player.instance.transform.position - transform.position).magnitude;
+
+        // If we are dead, we need to make sure that all the attacks are deactivated
+        if (_dead)
+        {
+            foreach (GameObject attack in _attacks)
+            {
+                if (attack != null && attack.gameObject.activeSelf)
+                    attack.SetActive(false);
+            }
+        }
+
+        // If we are still spawning, we don't do anything:
+        if (_spawning) return;
 
         if (_dead) return;
 
@@ -244,14 +306,24 @@ public class AIStateMachine : MonoBehaviour
         RaycastHit[] hits = Physics.RaycastAll(transform.position, transform.forward, 1f, LayerMask.GetMask("Interactive"));
         if(hits.Length > 0)
         {
-            Debug.Log("Interacted with a door");
             InteractiveDoor door = hits[0].transform.GetComponent<InteractiveDoor>();
             if (door != null)
             {
                 if (!door.open && door.canOpen)
                 {
-                    door.Interact(transform);
+                    bool canOpenDoor = door.Interact(transform);
                     ChangeState(AIStateType.Idle);
+
+                    // If we can't open the door, we are going to turn around and reset path and target
+                    if (!canOpenDoor || !door.ProgressionConditionsMet())
+                    {
+                        _currentTarget = null;
+                        _navMeshAgent.ResetPath();
+                        transform.rotation = Quaternion.LookRotation(-transform.forward);
+
+                        // Also make sure the zombies don't try to go through the door by stopping them
+                        _animator.SetFloat(_speedHash, 0);
+                    }
                 }
             }
         }
@@ -330,7 +402,7 @@ public class AIStateMachine : MonoBehaviour
 
     public void TakeDamage(float amount, Vector3 hitSourcePosition, RaycastHit hit, bool gun = true, int fromRight = -1)
     {
-        if (_dead) return;
+        if (_dead || _invincible) return;
 
         // Calculating from which side we got hit
         Vector3 toHitPointVector = hit.point - transform.position;
@@ -339,17 +411,6 @@ public class AIStateMachine : MonoBehaviour
         // We are attacking from right if fromRight is equal to 1
         rightHalfHit = fromRight == -1 ? rightHalfHit : fromRight != 1;
 
-        // We emit blood particles at the hit point
-        if (EffectsManager.instance != null && EffectsManager.instance.bloodParticles != null)
-        {
-            ParticleSystem bloodParticles = EffectsManager.instance.bloodParticles;
-            bloodParticles.transform.position = hit.point;
-            bloodParticles.transform.rotation = Quaternion.LookRotation(transform.position - GoneWrong.Player.instance.transform.position);
-            //bloodParticles.transform.rotation = transform.rotation * Quaternion.Euler(new Vector3(0, rightHalfHit ? -90 : 90, 0));
-            //bloodParticles.Emit(10000);
-            bloodParticles.Emit(1);
-        }
-
         _health = Mathf.Max(0, _health - amount);
 
         // We calculate the angle between our forward vector and that leading to the source
@@ -357,12 +418,7 @@ public class AIStateMachine : MonoBehaviour
         float angle = Vector3.Angle(transform.forward, toSourceVector);
 
         // Play pain sound
-        if(_painSounds.Count > 0)
-        {
-            _mouthAudioSource.Stop();
-            _mouthAudioSource.clip = _painSounds[Random.Range(0, _painSounds.Count)];
-            _mouthAudioSource.Play();
-        }
+        PlayPainSound();
 
         if (_animator != null) {
             if (angle > 90)
@@ -449,10 +505,45 @@ public class AIStateMachine : MonoBehaviour
         }
     }
 
+    private void PlayPainSound()
+    {
+        if (_painSounds.Count > 0 && GoneWrong.AudioManager.instance != null)
+        {
+            AudioClip painSound = _painSounds[Random.Range(0, _painSounds.Count)];
+
+            _mouthAudioSource.Stop();
+            _mouthAudioSource.clip = painSound;
+            _mouthAudioSource.Play();
+            _playingPainSound = true;
+
+            if (_playingPainSoundCoroutine != null) StopCoroutine(_playingPainSoundCoroutine);
+            _playingPainSoundCoroutine = ResetPlayingPainSound(painSound.length);
+            StartCoroutine(_playingPainSoundCoroutine);
+
+            //GoneWrong.AudioManager.instance.PlayOneShotSound(_painSounds[Random.Range(0, _painSounds.Count)], 1, 1, 1, transform.position);
+        }
+    }
+
+    private IEnumerator ResetPlayingPainSound(float painSoundLength)
+    {
+        yield return new WaitForSeconds(painSoundLength);
+
+        _playingPainSound = false;
+
+        _playingPainSoundCoroutine = null;
+    }
+
     public void Die()
     {
         if (!_dead)
         {
+            // We deactivate all the attacks
+            foreach(GameObject attack in _attacks)
+            {
+                if (attack != null)
+                    attack.SetActive(false);
+            }
+
             if (_spawner != null)
             {
                 _spawner.UnregisterEnemy();
@@ -472,6 +563,14 @@ public class AIStateMachine : MonoBehaviour
                 }
             }
 
+            if (ProgressManager.instance != null)
+            {
+                foreach (GameProgress gameProgress in _deadProgressAlteration)
+                {
+                    ProgressManager.instance.SetProgress(gameProgress.key, gameProgress.value);
+                }
+            }
+
             // We instantiate the item
             if (EnemyTeleporter.instance != null)
             {
@@ -480,17 +579,35 @@ public class AIStateMachine : MonoBehaviour
         }
 
         _dead = true;
-        _animator.SetBool(_deadHash, true);
-        _navMeshAgent.enabled = false;
+
+        if (!_ragdollOnDead) 
+            _animator.SetBool(_deadHash, true);
+        else
+        {
+            Ragdoll(true);
+        }
+
+        if(_navMeshAgent != null)
+            _navMeshAgent.enabled = false;
+
+        if (_mouthAudioSource != null)
+        {
+            _mouthAudioSource.Stop();
+            _mouthAudioSource.clip = null;
+        }
     }
 
     public void Revive()
     {
+        // We deragdoll the enemy
+        Ragdoll(false);
+
         ChangeState(AIStateType.Idle);
 
         // We set all the dead animations to false
         if (_animator != null)
         {
+            _animator.enabled = true;
             _animator.SetBool(_fallingBackHash, false);
             _animator.SetBool(_fallingForwardHash, false);
             _animator.SetBool(_deadHash, false);
@@ -502,6 +619,18 @@ public class AIStateMachine : MonoBehaviour
         _health = 100f;
         if (_navMeshAgent != null)
             _navMeshAgent.enabled = true;
+
+        // Reactivate all the attacks (these may have been decapitated)
+        foreach(GameObject attack in _attacks)
+        {
+            attack.GetComponent<Collider>().enabled = true;
+        }
+
+        // Restore all the body parts
+        foreach(AIDecapitation part in _parts)
+        {
+            part.Restore();
+        }
 
         _dead = false;
     }
@@ -522,6 +651,9 @@ public class AIStateMachine : MonoBehaviour
                 part.transform.GetComponent<Collider>().isTrigger = !doRagdoll;
             }
         }
+
+        if (_animator != null)
+            _animator.enabled = !doRagdoll;
     }
 
     public void PlayFootstepSound()
@@ -555,7 +687,6 @@ public class AIStateMachine : MonoBehaviour
         if (col.CompareTag("VehicleAttackTrigger"))
         {
             _vehicleStoppingDistance = (transform.position - col.transform.position).magnitude;
-
         }
 
         // To detect the collision with a car
@@ -564,11 +695,24 @@ public class AIStateMachine : MonoBehaviour
             if (_dead) return;
 
             Vehicle carController = col.transform.GetComponentInParent<Vehicle>();
-            carController.TakeDamage(5);
 
-            if (carController.GetComponent<Rigidbody>().velocity.magnitude < 4)
+            if (carController.GetComponent<Rigidbody>().velocity.magnitude < 3)
             {
                 return;
+            }
+
+            carController.TakeDamage(5);
+
+            // We emit blood particles
+            if (EffectsManager.instance != null && EffectsManager.instance.bloodParticles != null)
+            {
+                ParticleSystem bloodParticlesPrefab = EffectsManager.instance.bloodParticles;
+                ParticleSystem bloodParticlesTmp = Instantiate(bloodParticlesPrefab, transform.position, Quaternion.identity);
+                bloodParticlesTmp.transform.rotation = Quaternion.LookRotation(GoneWrong.Player.instance.transform.position - transform.position);
+                bloodParticlesTmp.Play();
+
+                // We instantiate ground and wall blood splatters here:
+                EffectsManager.instance.SplatterBlood(transform);
             }
 
             if (GoneWrong.AudioManager.instance != null )
@@ -576,39 +720,32 @@ public class AIStateMachine : MonoBehaviour
                 if (carController != null && carController.collisionWithBodySound != null)
                     GoneWrong.AudioManager.instance.PlayOneShotSound(carController.collisionWithBodySound, 1, 0, 1);
 
-                if (_painSounds.Count > 0)
-                {
-                    AudioClip painSound = _painSounds[Random.Range(0, _painSounds.Count)];
-                    if (painSound != null)
-                    {
-                        GoneWrong.AudioManager.instance.PlayOneShotSound(painSound, 1, 1, 1, transform.position);
-                    }
-                }
+                PlayPainSound();
             }
 
-            _health -= 30f;
-
-            // Add force to send the zombie flying
-
-            transform.LookAt(col.transform.position);
-            // We are gonna get hit and play the hit animation
-            // But we are gonna calculate the angle we make with the hit source to check from where it came
-            float angle = Vector3.Angle(transform.forward, col.transform.position - transform.position);
-            if (angle > 90)
+            // If the zombie is not to ragdoll, we make minimum damage and play the get thrown animation
+            if (!_ragdollOnDead)
             {
-                // This is a hit from behind:
-                /*if (_health >= 0)
+                _health -= 99999f;
+
+                // Add force to send the zombie flying
+                transform.LookAt(col.transform.position);
+                // We are gonna get hit and play the hit animation
+                // But we are gonna calculate the angle we make with the hit source to check from where it came
+                float angle = Vector3.Angle(transform.forward, col.transform.position - transform.position);
+                if (angle > 90)
+                {
+                    // This is a hit from behind:
                     _animator.SetTrigger(_backHeavyHitHash);
-                else _animator.SetTrigger(_fallingBackHash);*/
-                _animator.SetTrigger(_backHeavyHitHash);
+                }
+                else
+                {
+                    // This is a hit from the front:
+                    _animator.SetTrigger(_frontHeavyHitHash);
+                }
             } else
             {
-                // This is a hit from the front:
-                /*if (_health >= 0)
-                    _animator.SetTrigger(_backHeavyHitHash);
-                else _animator.SetTrigger(_fallingForwardHash);*/
-
-                _animator.SetTrigger(_frontHeavyHitHash);
+                _health -= 9999999f;
             }
 
             if (_health <= 0)

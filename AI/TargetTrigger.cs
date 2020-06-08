@@ -12,7 +12,7 @@ public class TargetTrigger : MonoBehaviour
     void Start()
     {
         _collider = GetComponent<SphereCollider>();
-        _viewableMask = LayerMask.GetMask("Default", "Player", "Interactive", "DecorationBase", "Car", "Wood");
+        _viewableMask = LayerMask.GetMask("Default", "Player", "Interactive", "DecorationBase", "Car", "Wood", "Metal");
     }
 
     public void RegisterTargetTrigger(AIStateMachine stateMachine)
@@ -29,14 +29,15 @@ public class TargetTrigger : MonoBehaviour
 
     private void OnTriggerStay(Collider other)
     {
+        if (_stateMachine == null || !_stateMachine.enabled) return;
+
         if (other.CompareTag("Player") || other.CompareTag("Car") || other.CompareTag("Audio"))
         {
             bool threatInSight = false;
 
             if ((other.CompareTag("Player") || other.CompareTag("Car")) && _stateMachine != null)
             {
-                Debug.DrawRay(transform.position, other.bounds.center - transform.position, Color.green);
-                
+                //Debug.DrawRay(transform.position, other.bounds.center - transform.position, Color.green);
 
                 //RaycastHit[] hits = Physics.SphereCast(transform.position, 10f, other.bounds.center - transform.position, _collider.radius, _viewableMask);
                 RaycastHit[] hits = Physics.RaycastAll(transform.position, other.bounds.center - transform.position, _collider.radius, _viewableMask);
@@ -94,9 +95,9 @@ public class TargetTrigger : MonoBehaviour
                 }
             }
 
-            if (!threatInSight)
+            if (!threatInSight && (!_stateMachine.seeThroughWalls && _stateMachine.fieldOfView != 360))
             {
-                if (other.CompareTag("Audio") &&
+                if (other.CompareTag("Audio") && _stateMachine.sensitiveToSound &&
                     (_stateMachine.currentTarget == null || (_stateMachine.currentTarget != null && _stateMachine.currentTarget.type != TargetType.Player)
                     ))
                 {
@@ -107,14 +108,19 @@ public class TargetTrigger : MonoBehaviour
                     _stateMachine.currentTarget = target;
                 } else
                 {
-                    ResetTarget();
+                    // When we have the player in sight and the target trigger is colliding with the car, and the player is not inside the car, then we don't reset the target
+                    if (!(_stateMachine.currentTarget != null
+                        && _stateMachine.currentTarget.type == TargetType.Player
+                        && other.CompareTag("Car")
+                        && GoneWrong.Player.instance.drivedVehicle == null))
+                        ResetTarget();
                 }
             }
         } else
         {
             // If we aren't colliding with anything that isn't of layer car
             // Some objects are of layer car but don't have the tag car
-            // So these objects will still trigger the collision
+            // So these objects will still trigger the collision and reset the target when we don't want that to happen
             if (LayerMask.LayerToName(other.transform.gameObject.layer) != "Car")
             {
                 ResetTarget();
