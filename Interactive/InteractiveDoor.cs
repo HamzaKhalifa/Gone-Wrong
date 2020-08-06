@@ -22,6 +22,7 @@ public class InteractiveDoor : InteractiveObject
     [SerializeField] AudioClip _cantOpenSound = null;
     [SerializeField] List<GameObject> _childObjects = new List<GameObject>();
     [SerializeField] List<GameObject> _parentObjects = new List<GameObject>();
+    [SerializeField] private float _animationSpeed = 2f;
 
     private Quaternion destinationRotation = Quaternion.identity;
     private Vector3 destinationPosition = Vector3.zero;
@@ -67,7 +68,7 @@ public class InteractiveDoor : InteractiveObject
         {
             if (Quaternion.Angle(transform.localRotation, destinationRotation) > 1.5f)
             {
-                transform.localRotation = Quaternion.Slerp(transform.localRotation, destinationRotation, 2f * Time.deltaTime);
+                transform.localRotation = Quaternion.Slerp(transform.localRotation, destinationRotation, _animationSpeed * Time.deltaTime);
             }
             else
             {
@@ -83,7 +84,7 @@ public class InteractiveDoor : InteractiveObject
         {
             if ((transform.localPosition - destinationPosition).magnitude > .01f)
             {
-                transform.localPosition = Vector3.Lerp(transform.localPosition, destinationPosition, 2f * Time.deltaTime);
+                transform.localPosition = Vector3.Lerp(transform.localPosition, destinationPosition, _animationSpeed * Time.deltaTime);
             }
             else
             {
@@ -112,6 +113,26 @@ public class InteractiveDoor : InteractiveObject
         }
 
         return validProgress;
+    }
+
+    public void PublicInteract()
+    {
+        Interact(null);
+    }
+
+    public void Close()
+    {
+        if (_open) {
+            Interact(GoneWrong.Player.instance.transform);
+        }
+    }
+
+    public void Open()
+    {
+        if (!_open)
+        {
+            Interact(GoneWrong.Player.instance.transform);
+        }
     }
 
     public override bool Interact(Transform interactor)
@@ -214,5 +235,15 @@ public class InteractiveDoor : InteractiveObject
 
         _text = _interactiveText;
         _changeTextCouroutine = null;
+    }
+
+    public void Lock()
+    {
+        _canOpen = false;
+    }
+
+    public void Unlock()
+    {
+        _canOpen = true;
     }
 }

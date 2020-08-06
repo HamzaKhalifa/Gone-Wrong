@@ -680,6 +680,18 @@ public class PlayerInventoryUI : MonoBehaviour
         _clickedItemIndex = -1;
         _clickedItemType = ItemType.None;
 
+        // Deselect All weapons
+        for (int i = 0; i < _weaponSlots.Count; i++)
+        {
+            OnWeaponPointerExit(i);
+        }
+
+        // Deselect all items
+        for (int i = 0; i < _itemInfos.Count; i++)
+        {
+            OnItemPointerExit(i);
+        }
+
         Repaint(false);
     }
 
@@ -748,6 +760,12 @@ public class PlayerInventoryUI : MonoBehaviour
 
         _clickedItemIndex = -1;
         _clickedItemType = ItemType.None;
+
+        // Deselect all items
+        for (int i = 0; i < _itemInfos.Count; i++)
+        {
+            OnItemPointerExit(i);
+        }
 
         Repaint(false);
     }

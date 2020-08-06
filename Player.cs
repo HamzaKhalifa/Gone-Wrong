@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
+using UnityEngine.Events;
 
 namespace GoneWrong
 {
@@ -41,6 +42,11 @@ namespace GoneWrong
         [SerializeField] List<AudioClip> _tauntSounds = new List<AudioClip>();
         [SerializeField] private AudioClip _inventorySound = null;
 
+        [Header("Player")]
+        [SerializeField] private bool _neverActuallyDies = false;
+        [SerializeField] private List<UnityEvent> _deadEvents = new List<UnityEvent>();
+        [SerializeField] private List<Transform> _deadSpawns = new List<Transform>();
+
         // Cache
         private CharacterController _characterController = null;
 
@@ -68,6 +74,7 @@ namespace GoneWrong
         private float _runningSoundTime = 0f;
         private float _runningSoundDelay = 0f;
         private IEnumerator _deadCoroutine = null;
+        private int _numberOfTimesDead = 0;
 
 
         // Get the Horizontal and Vertical axes
@@ -256,9 +263,12 @@ namespace GoneWrong
             // Handle detecting items to interact with
             if (Camera.main != null)
             {
-                RaycastHit[] hits;
                 Ray ray = Camera.main.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
+
+                RaycastHit[] hits;
+                
                 hits = Physics.RaycastAll(ray, 2f, _interactiveLayer);
+                bool interaftiveInSight = false;
                 if (hits.Length > 0)
                 {
                     int higherPriority = 251;
@@ -276,21 +286,40 @@ namespace GoneWrong
                     if (interactiveObjectIndex != -1)
                     {
                         InteractiveObject chosenInteractiveObject = hits[interactiveObjectIndex].collider.transform.GetComponent<InteractiveObject>();
-                        chosenInteractiveObject.ShowText();
 
+                        // Trying to check if we have something of layer default (solid) in front of us and preventing us from interaction with the interactive object behind it
+                        /*float distanceToSolid = float.MaxValue;
+                        RaycastHit hitInfo;
+                        if (Physics.Raycast(ray, out hitInfo, 2f, LayerMask.GetMask("Default")))
+                        {
+                            // Only take the solid into consideration if it's not attached to an interactive object
+                            if (hitInfo.transform.GetComponentInParent<InteractiveObject>() == null)
+                            {
+                                distanceToSolid = Vector3.Distance(Camera.main.transform.position, hitInfo.point);
+                            }
+                        }*/
+
+                        //float distanceToChosenInteractiveObject = Vector3.Distance(Camera.main.transform.position, chosenInteractiveObject.transform.position);
+                        interaftiveInSight = true;
+                        chosenInteractiveObject.ShowText();
                         // Now that we are showing the interactive object text, we can interact with it
                         if (Input.GetKeyDown(KeyCode.E))
                         {
                             chosenInteractiveObject.Interact(transform);
                         }
+
+                        /*if (distanceToChosenInteractiveObject < distanceToSolid)
+                        {
+                            
+                        } else
+                        {
+                            Debug.Log("Solid hiding the view is " + hitInfo.transform.name);
+                        }*/
                     }
                 }
-                else
+                if (!interaftiveInSight && PlayerHUD.instance != null)
                 {
-                    if (PlayerHUD.instance != null)
-                    {
-                        PlayerHUD.instance.DeactivateInteractiveText();
-                    }
+                    PlayerHUD.instance.DeactivateInteractiveText();
                 }
             }
 
@@ -329,7 +358,9 @@ namespace GoneWrong
             }
 
             // Run Button
-            if (Input.GetKeyDown(KeyCode.LeftShift) && _characterController.isGrounded && _canRun)
+            if (Input.GetKeyDown(KeyCode.LeftShift) && _characterController.isGrounded && _canRun
+                // We shouldn't be able to run when it's the nightmare mansion scene
+                && SceneManager.GetActiveScene().name != "Nightmare Mansion")
             {
                 _isRunning = true;
                 if (_equippedWeaponControl != null)
@@ -379,7 +410,7 @@ namespace GoneWrong
             // Handle taunt
             if (Input.GetKeyDown(KeyCode.T) && AudioThreatManager.instance != null
                 // We don't want to taunt in hospital
-                && SceneManager.GetActiveScene().buildIndex != 1)
+                && SceneManager.GetActiveScene().name != "Hospital")
             {
                 if (AudioManager.instance != null && _tauntSounds.Count > 0)
                 {
@@ -460,7 +491,7 @@ namespace GoneWrong
             }
 
             // Handle flashlight
-            if (Flashlight.instance != null) {
+            if (Flashlight.instance != null && SceneManager.GetActiveScene().name != "Nightmare Mansion") {
                 // We can still equip the flashlight if the selected weapon is a melee weapon
                 if(Input.GetKeyDown(KeyCode.F) || (_weaponIndex != -1 && _weaponIndex != 4 && Flashlight.instance.looking))
                 {
@@ -704,6 +735,7 @@ namespace GoneWrong
             if (_healthSharedFloat.value <= 0)
             {
                 _dead = true;
+
                 // We should show the game over screen here
                 GameOver();
             }
@@ -711,8 +743,12 @@ namespace GoneWrong
 
         public void GameOver()
         {
-            Cursor.visible = true;
-            Cursor.lockState = CursorLockMode.None;
+            if (!_neverActuallyDies)
+            {
+                Cursor.visible = true;
+                Cursor.lockState = CursorLockMode.None;
+            }
+
             if (_deadCoroutine == null)
             {
                 _deadCoroutine = DeadCoroutine();
@@ -725,7 +761,8 @@ namespace GoneWrong
         IEnumerator DeadCoroutine()
         {
             // We need to empty the player inventory after we die
-            _playerInventory.InitializeInventory();
+            if (!_neverActuallyDies)
+                _playerInventory.InitializeInventory();
 
             // Disable character controller to stop the zombie from attacking us
             _characterController.enabled = false;
@@ -749,7 +786,7 @@ namespace GoneWrong
             yield return new WaitForSeconds(3f);
 
             // Then we start loading 
-            if (Loading.instance != null)
+            if (Loading.instance != null && !_neverActuallyDies)
             {
                 Loading.instance.SetLoading(true);
             }
@@ -759,14 +796,70 @@ namespace GoneWrong
             {
                 SceneManager.LoadScene("Wasteland");
             }
-            else
+            else if (!_neverActuallyDies)
             {
                 // We reload the current scene intead of going back to the main menu
                 SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
                 //SceneManager.LoadScene(0);
             }
 
+            if (_neverActuallyDies)
+            {
+                time = 0;
+                delay = 4;
+                while (time <= delay )
+                {
+                    time += Time.deltaTime;
+                    float opacity = Mathf.Lerp(1, 0, time / delay);
+                    Debug.Log("opacity: " + opacity);
+                    _deadImage.color = new Color(_deadImage.color.r, _deadImage.color.g, _deadImage.color.b, opacity);
+                    if (deadText != null)
+                        deadText.color = new Color(deadText.color.r, deadText.color.g, deadText.color.b, opacity);
+
+                    
+                    yield return null;
+                }
+
+                _deadImage.color = new Color(_deadImage.color.r, _deadImage.color.g, _deadImage.color.b, 0);
+                deadText.color = new Color(deadText.color.r, deadText.color.g, deadText.color.b, 0);
+
+                _healthSharedFloat.value = 100f;
+
+                _dead = false;
+
+                DeadEvents();
+            }
+
             _deadCoroutine = null;
+        }
+
+        private void DeadEvents()
+        {
+            StartCoroutine(RemoveBloodScreen());
+            _deadEvents[_numberOfTimesDead].Invoke();
+            _characterController.enabled = false;
+            transform.position = _deadSpawns[_numberOfTimesDead].position;
+            _characterController.enabled = true;
+
+            _numberOfTimesDead++;
+        }
+
+        private IEnumerator RemoveBloodScreen()
+        {
+            float time = 0;
+            float delay = 4;
+            while (time <= delay)
+            {
+                time += Time.deltaTime;
+                float opacity = Mathf.Lerp(1, 0, time / delay);
+
+                _bloodScreen.color = new Color(_bloodScreen.color.r, _bloodScreen.color.g, _bloodScreen.color.b, opacity);
+
+                yield return null;
+            }
+
+            _bloodScreen.color = new Color(_bloodScreen.color.r, _bloodScreen.color.g, _bloodScreen.color.b, 0);
+
         }
 
         private void OnTriggerEnter(Collider other)
@@ -798,7 +891,7 @@ namespace GoneWrong
                 AIStateMachine stateMachine = col.GetComponent<AIStateMachine>();
                 if (!_collidingEnemies.Contains(stateMachine))
                 {
-                    _collidingEnemies.Add(stateMachine);
+                    //_collidingEnemies.Add(stateMachine);
                 }
             }
 

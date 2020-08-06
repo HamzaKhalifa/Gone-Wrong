@@ -220,5 +220,20 @@ public class ProgressManager : MonoBehaviour
             SmartphoneUI.instance.EnqueueLastMessage();
         }
     }
+
+    public void TheEnd()
+    {
+        Invoke("TheEndMainMenu", 10);
+    }
+
+    public void TheEndMainMenu()
+    {
+        LoadScene(0);
+    }
+
+    public void PlaySound(AudioClip clip)
+    {
+        GoneWrong.AudioManager.instance.PlayOneShotSound(clip, 1, 0, 1, transform.position);
+    }
 }
 

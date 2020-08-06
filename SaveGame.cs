@@ -226,10 +226,10 @@ public class SaveGame : InteractiveObject
 
             // We only load the player position if the last saved scene is the same as the current scene
             // So that we dont load the player in a random position when he just entered the map from another map
-            // We can also load the player's positon when we are in wasteland
+            // We can only load the player's positon when we are in wasteland
             GoneWrong.Player player = FindObjectOfType<GoneWrong.Player>();
             if (player != null && _savedData.currentScene == SceneManager.GetActiveScene().buildIndex
-                && SceneManager.GetActiveScene().buildIndex == 2)
+                && SceneManager.GetActiveScene().name == "Wasteland")
             {
                 CharacterController playerCharacterController = player.GetComponent<CharacterController>();
                 playerCharacterController.enabled = false;
@@ -419,17 +419,25 @@ public class SaveGame : InteractiveObject
         }
     }
 
-    public void Save(int sceneIndex = -1)
+    public void Save(int nextSceneIndex = -1)
     {
         SavedData savedData = new SavedData();
 
-        // We save the current scene if scene index is either not set or when we are going back to main menu
+        // We save the current scene (or the last scene) instead of the next one when the scene index is either not set or when we are going back to main menu
         // Or when the next scene is nightmare
         // Or when it's the end chapter or the final suicide scene
-        if (sceneIndex == -1 || sceneIndex == 0 || sceneIndex == 3 || sceneIndex == 6 || sceneIndex == 7)
+        // When the next scene index is not set, it means we are saving data in wasteland, so we save the data for the current scene.
+        int nightmareSceneIndex = SceneManager.GetSceneByName("Nightmare").buildIndex;
+        int chapter1EndSceneIndex = SceneManager.GetSceneByName("Chapter 1 End").buildIndex;
+        int suicideSceneIndex = SceneManager.GetSceneByName("Suicide Scene ").buildIndex;
+
+        if (nextSceneIndex == -1 || nextSceneIndex == 0
+            || nextSceneIndex == nightmareSceneIndex
+            || nextSceneIndex == chapter1EndSceneIndex
+            || nextSceneIndex == suicideSceneIndex)
             savedData.currentScene = SceneManager.GetActiveScene().buildIndex;
         else
-            savedData.currentScene = sceneIndex;
+            savedData.currentScene = nextSceneIndex;
 
         // We get the corresponding scene items first
         SceneData sceneData = null;
@@ -685,7 +693,7 @@ public class SaveGame : InteractiveObject
         // Now we save the player position
         // We only save the player's position when we are in wasteland
         GoneWrong.Player player = GoneWrong.Player.instance;
-        if (player != null && SceneManager.GetActiveScene().buildIndex == 2)
+        if (player != null && SceneManager.GetActiveScene().name == "Wasteland")
         {
             savedData.playerPosition = player.transform.position;
             savedData.playerRotation = player.transform.rotation;
